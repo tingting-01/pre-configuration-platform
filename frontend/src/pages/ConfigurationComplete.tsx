@@ -1591,7 +1591,27 @@ const ConfigurationComplete = () => {
         }, 2000)
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to save configuration')
+      // 改进错误信息显示，显示详细的错误内容
+      let errorMessage = 'Failed to save configuration'
+      
+      if (err.response) {
+        // 服务器返回的错误
+        const status = err.response.status
+        const detail = err.response.data?.detail || err.response.data?.message || err.response.data
+        
+        if (typeof detail === 'string') {
+          errorMessage = `Request failed with status code ${status}: ${detail}`
+        } else if (detail) {
+          errorMessage = `Request failed with status code ${status}: ${JSON.stringify(detail)}`
+        } else {
+          errorMessage = `Request failed with status code ${status}`
+        }
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      console.error('Configuration submit error:', err)
+      setError(errorMessage)
       setSubmitProgress('')
     } finally {
       setIsLoading(false)
@@ -2015,6 +2035,100 @@ const ConfigurationComplete = () => {
           }}>
             Pre-configuration Request Form
           </h1>
+
+          {/* Messages - Unified at top */}
+          {error && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '12px 16px',
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '6px',
+              color: '#dc2626',
+              fontSize: '14px',
+              textAlign: 'center'
+            }}>
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '12px 16px',
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              borderRadius: '6px',
+              color: '#16a34a',
+              fontSize: '14px',
+              textAlign: 'center'
+            }}>
+              {success}
+            </div>
+          )}
+
+          {/* Progress Indicator */}
+          {(isLoading || submitProgress) && (
+            <div style={{
+              marginBottom: '16px',
+              display: 'flex',
+              justifyContent: 'center'
+            }}>
+              <div style={{
+                background: submitProgress.includes('successfully') 
+                  ? '#f0fdf4'
+                  : submitProgress.includes('Failed') || submitProgress.includes('failed')
+                  ? '#fef2f2'
+                  : '#f8fafc',
+                border: submitProgress.includes('successfully')
+                  ? '1px solid #bbf7d0'
+                  : submitProgress.includes('Failed') || submitProgress.includes('failed')
+                  ? '1px solid #fecaca'
+                  : '1px solid #e2e8f0',
+                borderRadius: '0.5rem',
+                padding: '12px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
+              }}>
+                {isLoading && !submitProgress.includes('successfully') && !submitProgress.includes('Failed') && !submitProgress.includes('failed') && (
+                  <div style={{
+                    width: '16px',
+                    height: '16px',
+                    border: '2px solid #7c3aed',
+                    borderTop: '2px solid transparent',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                  }} />
+                )}
+                {submitProgress.includes('successfully') ? (
+                  <svg width="16" height="16" fill="#10b981" viewBox="0 0 24 24">
+                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                ) : submitProgress.includes('Failed') || submitProgress.includes('failed') ? (
+                  <svg width="16" height="16" fill="#ef4444" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" fill="#7c3aed" viewBox="0 0 24 24">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                  </svg>
+                )}
+                <div style={{
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  color: submitProgress.includes('successfully')
+                    ? '#059669'
+                    : submitProgress.includes('Failed') || submitProgress.includes('failed')
+                    ? '#dc2626'
+                    : '#7c3aed'
+                }}>
+                  {submitProgress || 'Processing...'}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Order Information */}
           <section style={{ marginBottom: '32px' }}>
@@ -3567,7 +3681,7 @@ const ConfigurationComplete = () => {
             {panelStates.lora && (
               <div style={{
                 background: '#ffffff',
-                border: '1px solid #10b981',
+                border: '1px solid #e5e7eb',
                 borderRadius: '10px',
                 padding: '16px',
                 marginTop: '12px'
@@ -3576,7 +3690,7 @@ const ConfigurationComplete = () => {
                   <h3 style={{
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#10b981',
+                    color: '#1f2937',
                     marginBottom: '12px'
                   }}>
                     LoRa Mode Configuration
@@ -3595,7 +3709,7 @@ const ConfigurationComplete = () => {
                       style={{
                         width: '100%',
                         height: '36px',
-                        border: '1px solid #10b981',
+                        border: '1px solid #e5e7eb',
                         borderRadius: '6px',
                         padding: '0 10px',
                         background: '#fff',
@@ -3615,7 +3729,7 @@ const ConfigurationComplete = () => {
                         value="packet-forwarder"
                         checked={formData.loraMode === 'packet-forwarder'}
                         onChange={(e) => handleInputChange('loraMode', e.target.value)}
-                        style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                        style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                       />
                       <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                         Packet Forwarder
@@ -3628,7 +3742,7 @@ const ConfigurationComplete = () => {
                         value="basic-station"
                         checked={formData.loraMode === 'basic-station'}
                         onChange={(e) => handleInputChange('loraMode', e.target.value)}
-                        style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                        style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                       />
                       <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                         Basic Station
@@ -3647,7 +3761,7 @@ const ConfigurationComplete = () => {
                       style={{
                         width: '100%',
                         height: '36px',
-                        border: '1px solid #10b981',
+                        border: '1px solid #e5e7eb',
                         borderRadius: '6px',
                         padding: '0 10px',
                         background: '#fff',
@@ -3682,7 +3796,7 @@ const ConfigurationComplete = () => {
                           value="udp-gwmp"
                           checked={formData.loraSubmode === 'udp-gwmp'}
                           onChange={(e) => handleInputChange('loraSubmode', e.target.value)}
-                          style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                          style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                         />
                         <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                           Semtech UDP GWMP Protocol
@@ -3695,7 +3809,7 @@ const ConfigurationComplete = () => {
                           value="mqtt-bridge"
                           checked={formData.loraSubmode === 'mqtt-bridge'}
                           onChange={(e) => handleInputChange('loraSubmode', e.target.value)}
-                          style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                          style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                         />
                         <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                           LoRa® Gateway MQTT Bridge
@@ -3729,7 +3843,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3751,7 +3865,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3778,7 +3892,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3805,7 +3919,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3832,7 +3946,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3859,7 +3973,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3886,7 +4000,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3913,7 +4027,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -3947,7 +4061,7 @@ const ConfigurationComplete = () => {
                               left: 0,
                               right: 0,
                               bottom: 0,
-                              background: formData.udpAutoDataRecovery ? '#10b981' : '#d1d5db',
+                              background: formData.udpAutoDataRecovery ? '#7c3aed' : '#d1d5db',
                               borderRadius: '24px',
                               transition: 'background-color 0.3s'
                             }}>
@@ -3993,7 +4107,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4013,7 +4127,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4040,7 +4154,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4067,7 +4181,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4087,7 +4201,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4112,7 +4226,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4138,7 +4252,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4238,7 +4352,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4267,7 +4381,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4290,7 +4404,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4310,7 +4424,7 @@ const ConfigurationComplete = () => {
                           style={{
                             width: '100%',
                             height: '36px',
-                            border: '1px solid #10b981',
+                            border: '1px solid #e5e7eb',
                             borderRadius: '6px',
                             padding: '0 10px',
                             background: '#fff',
@@ -4459,7 +4573,7 @@ const ConfigurationComplete = () => {
                             style={{
                               width: '100%',
                               height: '36px',
-                              border: (formData.basicStationBatchTtn || formData.basicStationZtp) ? '1px solid #d1d5db' : '1px solid #10b981',
+                              border: (formData.basicStationBatchTtn || formData.basicStationZtp) ? '1px solid #d1d5db' : '1px solid #e5e7eb',
                               borderRadius: '6px',
                               padding: '0 10px',
                               background: (formData.basicStationBatchTtn || formData.basicStationZtp) ? '#f9fafb' : '#fff',
@@ -4498,7 +4612,7 @@ const ConfigurationComplete = () => {
                                 handleInputChange('basicStationBatchAwsIot', false);
                               }
                             }}
-                            style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                            style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                           />
                           <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                             ZTP
@@ -4515,7 +4629,7 @@ const ConfigurationComplete = () => {
                                   handleInputChange('basicStationZtp', false);
                                 }
                               }}
-                              style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                              style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                             />
                             <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                               Batch add to AWS IoT Core
@@ -4533,7 +4647,7 @@ const ConfigurationComplete = () => {
                                   handleInputChange('basicStationZtp', false);
                                 }
                               }}
-                              style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                              style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                             />
                             <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                               Batch add to TTN
@@ -4567,7 +4681,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4589,7 +4703,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4611,7 +4725,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4633,7 +4747,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4655,7 +4769,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4671,7 +4785,7 @@ const ConfigurationComplete = () => {
                                   type="checkbox"
                                   checked={formData.awsUseClassBMode}
                                   onChange={(e) => handleInputChange('awsUseClassBMode', e.target.checked)}
-                                  style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
+                                  style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
                                 />
                                 <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                                   Use Class B mode?
@@ -4731,7 +4845,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4751,7 +4865,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4871,7 +4985,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4893,7 +5007,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   width: '100%',
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -4936,7 +5050,7 @@ const ConfigurationComplete = () => {
                   {/* White List Mode Configuration */}
                   <div style={{
                     background: '#fff',
-                    border: '1px solid #10b981',
+                    border: '1px solid #e5e7eb',
                     borderRadius: '10px',
                     padding: '16px',
                     marginTop: '12px'
@@ -4964,7 +5078,7 @@ const ConfigurationComplete = () => {
                           left: 0,
                           right: 0,
                           bottom: 0,
-                          background: formData.loraWhitelistMode ? '#10b981' : '#d1d5db',
+                          background: formData.loraWhitelistMode ? '#7c3aed' : '#d1d5db',
                           borderRadius: '24px',
                           transition: 'background-color 0.3s'
                         }}>
@@ -4998,7 +5112,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   flex: 1,
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -5018,10 +5132,10 @@ const ConfigurationComplete = () => {
                                 style={{
                                   height: '36px',
                                   padding: '0 16px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   background: '#fff',
-                                  color: '#10b981',
+                                  color: '#6b7280',
                                   cursor: 'pointer',
                                   fontSize: '14px',
                                   fontWeight: '500',
@@ -5045,7 +5159,7 @@ const ConfigurationComplete = () => {
                                 style={{
                                   flex: 1,
                                   height: '36px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   padding: '0 10px',
                                   background: '#fff',
@@ -5065,10 +5179,10 @@ const ConfigurationComplete = () => {
                                 style={{
                                   height: '36px',
                                   padding: '0 16px',
-                                  border: '1px solid #10b981',
+                                  border: '1px solid #e5e7eb',
                                   borderRadius: '6px',
                                   background: '#fff',
-                                  color: '#10b981',
+                                  color: '#6b7280',
                                   cursor: 'pointer',
                                   fontSize: '14px',
                                   fontWeight: '500',
@@ -5226,7 +5340,7 @@ const ConfigurationComplete = () => {
                   marginTop: '12px',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#7c3aed', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
                     Gateway Login Configuration
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -5262,7 +5376,7 @@ const ConfigurationComplete = () => {
                   marginTop: '12px',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#7c3aed', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
                     WisDM Configuration
                   </div>
                   
@@ -5382,7 +5496,7 @@ const ConfigurationComplete = () => {
                   marginTop: '12px',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#7c3aed', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
                     Log Settings
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
@@ -5512,7 +5626,7 @@ const ConfigurationComplete = () => {
                   marginTop: '12px',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#7c3aed', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
                     System Time Configuration
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
@@ -5672,7 +5786,7 @@ const ConfigurationComplete = () => {
                   marginTop: '12px',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#7c3aed', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
                     Gateway Configuration
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -5708,7 +5822,7 @@ const ConfigurationComplete = () => {
                   marginTop: '12px',
                   boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#7c3aed', marginBottom: '12px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#1f2937', marginBottom: '12px' }}>
                     SSH Configuration
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -6326,70 +6440,6 @@ const ConfigurationComplete = () => {
             )}
           </section>
 
-          {/* Progress Indicator */}
-          {(isLoading || submitProgress) && (
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              marginTop: '24px',
-              marginBottom: '16px'
-            }}>
-              <div style={{
-                background: submitProgress.includes('successfully') 
-                  ? '#f0fdf4'
-                  : submitProgress.includes('Failed') || submitProgress.includes('failed')
-                  ? '#fef2f2'
-                  : '#f8fafc',
-                border: submitProgress.includes('successfully')
-                  ? '1px solid #bbf7d0'
-                  : submitProgress.includes('Failed') || submitProgress.includes('failed')
-                  ? '1px solid #fecaca'
-                  : '1px solid #e2e8f0',
-                borderRadius: '0.5rem',
-                padding: '12px 20px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
-              }}>
-                {isLoading && !submitProgress.includes('successfully') && !submitProgress.includes('Failed') && !submitProgress.includes('failed') && (
-                  <div style={{
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid #7c3aed',
-                    borderTop: '2px solid transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite'
-                  }} />
-                )}
-                {submitProgress.includes('successfully') ? (
-                  <svg width="16" height="16" fill="#10b981" viewBox="0 0 24 24">
-                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                  </svg>
-                ) : submitProgress.includes('Failed') || submitProgress.includes('failed') ? (
-                  <svg width="16" height="16" fill="#ef4444" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" fill="#7c3aed" viewBox="0 0 24 24">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                  </svg>
-                )}
-                <div style={{
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: submitProgress.includes('successfully')
-                    ? '#059669'
-                    : submitProgress.includes('Failed') || submitProgress.includes('failed')
-                    ? '#dc2626'
-                    : '#7c3aed'
-                }}>
-                  {submitProgress || 'Processing...'}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Submit Button */}
           <div style={{
             display: 'flex',
@@ -6434,37 +6484,6 @@ const ConfigurationComplete = () => {
             </button>
           </div>
         </div>
-
-        {/* Messages */}
-        {error && (
-          <div style={{
-            marginTop: '16px',
-            padding: '12px 16px',
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: '6px',
-            color: '#dc2626',
-            fontSize: '14px',
-            textAlign: 'center'
-          }}>
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div style={{
-            marginTop: '16px',
-            padding: '12px 16px',
-            background: '#f0fdf4',
-            border: '1px solid #bbf7d0',
-            borderRadius: '6px',
-            color: '#16a34a',
-            fontSize: '14px',
-            textAlign: 'center'
-          }}>
-            {success}
-          </div>
-        )}
 
         {/* Template Selector */}
         <TemplateSelector

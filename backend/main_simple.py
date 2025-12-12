@@ -698,6 +698,7 @@ async def create_request(request_data: RequestCreate, current_user: dict = Depen
         # 处理tags
         tags_json = json.dumps(request_data.tags if request_data.tags else [])
         
+        # 使用事务：如果后续步骤失败，回滚整个操作
         cursor.execute('''
             INSERT INTO requests (request_id, company_name, rak_id, submit_time, status, assignee, config_data, changes, original_config, tags, user_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -715,20 +716,28 @@ async def create_request(request_data: RequestCreate, current_user: dict = Depen
             current_user["id"]
         ))
         
-        conn.commit()
-        
         # 创建初始活动记录（记录创建者信息）
-        creator_name = current_user.get("name") or current_user.get("email", "Unknown")
-        cursor.execute('''
-            INSERT INTO activities (request_id, user_id, activity_type, description)
-            VALUES (?, ?, ?, ?)
-        ''', (request_id, current_user["id"], "created", 
-              f"Request created by {creator_name} for {request_data.companyName}"))
+        # 如果活动记录创建失败，不影响主请求的创建
+        try:
+            creator_name = current_user.get("name") or current_user.get("email", "Unknown")
+            cursor.execute('''
+                INSERT INTO activities (request_id, user_id, activity_type, description)
+                VALUES (?, ?, ?, ?)
+            ''', (request_id, current_user["id"], "created", 
+                  f"Request created by {creator_name} for {request_data.companyName}"))
+        except Exception as activity_error:
+            # 活动记录创建失败不影响主请求，只记录日志
+            print(f"⚠️ Warning: Failed to create activity record: {str(activity_error)}")
+        
+        # 一次性提交所有更改
         conn.commit()
         
         print(f"✅ Request created successfully: {request_id}")
         return {"message": "Request created successfully", "request_id": request_id}
     except Exception as e:
+        # 如果出错，回滚事务
+        conn.rollback()
+        print(f"❌ Error creating request: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         conn.close()

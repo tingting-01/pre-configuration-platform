@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { MessageCircle, Send, Trash2, User, Paperclip, X, Download } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
+import { useToast } from '../hooks/useToast'
+import ToastContainer from './ToastContainer'
 
 interface Comment {
   id: number
@@ -30,6 +32,7 @@ const Comments: React.FC<CommentsProps> = ({ requestId }) => {
   const [attachments, setAttachments] = useState<FileInfo[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { token } = useAuthStore()
+  const { toasts, showError, removeToast } = useToast()
 
   useEffect(() => {
     if (token) {
@@ -124,7 +127,7 @@ const Comments: React.FC<CommentsProps> = ({ requestId }) => {
       })
     } catch (error) {
       console.error('Error uploading files:', error)
-      alert('Failed to upload files. Please try again.')
+      showError('Failed to upload files. Please try again.')
     } finally {
       setUploadingFiles(false)
       // 重置文件输入
@@ -172,11 +175,11 @@ const Comments: React.FC<CommentsProps> = ({ requestId }) => {
       } else {
         const errorText = await response.text()
         console.error('Failed to download file:', response.status, errorText)
-        alert(`Failed to download file: ${response.status === 404 ? 'File not found' : response.status === 403 ? 'Permission denied' : 'Unknown error'}`)
+        showError(`Failed to download file: ${response.status === 404 ? 'File not found' : response.status === 403 ? 'Permission denied' : 'Unknown error'}`)
       }
     } catch (error) {
       console.error('Error downloading file:', error)
-      alert('Error downloading file. Please try again.')
+      showError('Error downloading file. Please try again.')
     }
   }
 
@@ -215,11 +218,11 @@ const Comments: React.FC<CommentsProps> = ({ requestId }) => {
       } else {
         const errorText = await response.text()
         console.error('Failed to create comment:', response.status, errorText)
-        alert('Failed to create comment. Please try again.')
+        showError('Failed to create comment. Please try again.')
       }
     } catch (error) {
       console.error('Error creating comment:', error)
-      alert('Error creating comment. Please try again.')
+      showError('Error creating comment. Please try again.')
     } finally {
       setSubmitting(false)
     }
@@ -614,6 +617,8 @@ const Comments: React.FC<CommentsProps> = ({ requestId }) => {
           </button>
         </div>
       </form>
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

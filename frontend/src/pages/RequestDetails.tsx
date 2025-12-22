@@ -4,6 +4,8 @@ import { requestAPI, Request } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import Comments from '../components/Comments'
 import History from '../components/History'
+import { useToast } from '../hooks/useToast'
+import ToastContainer from '../components/ToastContainer'
 import { 
   ArrowLeft, 
   Download, 
@@ -27,6 +29,7 @@ import { useState, useEffect } from 'react'
 const RequestDetails = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { toasts, showError, showSuccess, removeToast } = useToast()
   const [activeSection, setActiveSection] = useState('overview')
   const [users, setUsers] = useState<any[]>([])
   const [isExporting, setIsExporting] = useState(false)
@@ -1219,10 +1222,10 @@ const RequestDetails = () => {
         }
       }
 
-      alert(`Export completed! Configuration CSV and ${attachments.length} attachment(s) downloaded.`)
+      showSuccess(`Export completed! Configuration CSV and ${attachments.length} attachment(s) downloaded.`)
     } catch (error) {
       console.error('Error exporting configuration:', error)
-      alert('Failed to export configuration. Please try again.')
+      showError('Failed to export configuration. Please try again.')
     } finally {
       setIsExporting(false)
     }
@@ -2670,11 +2673,11 @@ const RequestDetails = () => {
                                   document.body.removeChild(a);
                                 } else {
                                   console.error('Failed to download file:', response.status, response.statusText);
-                                  alert('Failed to download file');
+                                  showError('Failed to download file');
                                 }
                               } catch (error) {
                                 console.error('Error downloading file:', error);
-                                alert('Error downloading file');
+                                showError('Error downloading file');
                               }
                             }}
                             className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -2814,6 +2817,9 @@ const RequestDetails = () => {
 
         </div>
       </div>
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

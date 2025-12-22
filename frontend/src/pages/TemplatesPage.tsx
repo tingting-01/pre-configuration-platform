@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { templateAPI, Template } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
+import { useToast } from '../hooks/useToast'
+import ToastContainer from '../components/ToastContainer'
 
 const TemplatesPage = () => {
   const navigate = useNavigate()
   const { user } = useAuthStore()
+  const { toasts, showError, removeToast } = useToast()
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -36,7 +39,7 @@ const TemplatesPage = () => {
       setTemplates(templates.filter(t => t.id !== templateId))
       setShowDeleteConfirm(null)
     } catch (err: any) {
-      alert(err.message || 'Failed to delete template')
+      showError(err.message || 'Failed to delete template')
     }
   }
 
@@ -51,6 +54,11 @@ const TemplatesPage = () => {
     
     // 导航到配置页面，并传递模板ID
     navigate(`/configuration?template=${template.id}`)
+  }
+
+  const handleEditTemplate = (template: Template) => {
+    // 导航到配置页面，并传递模板ID用于编辑
+    navigate(`/configuration?editTemplate=${template.id}`)
   }
 
   const filteredTemplates = templates.filter(template => {
@@ -253,21 +261,38 @@ const TemplatesPage = () => {
                   Apply
                 </button>
                 {(template.createdBy === user?.email || user?.email?.endsWith('@rakwireless.com')) && (
-                  <button
-                    onClick={() => setShowDeleteConfirm(template.id)}
-                    style={{
-                      padding: '8px 16px',
-                      background: '#fee2e2',
-                      color: '#dc2626',
-                      border: 'none',
-                      borderRadius: '0.375rem',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Delete
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleEditTemplate(template)}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#10b981',
+                        color: '#ffffff',
+                        border: 'none',
+                        borderRadius: '0.375rem',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteConfirm(template.id)}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#fee2e2',
+                        color: '#dc2626',
+                        border: 'none',
+                        borderRadius: '0.375rem',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -335,6 +360,9 @@ const TemplatesPage = () => {
           </div>
         </div>
       )}
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

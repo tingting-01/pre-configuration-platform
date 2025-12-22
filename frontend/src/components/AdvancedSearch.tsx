@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useToast } from '../hooks/useToast'
+import ToastContainer from './ToastContainer'
 
 export interface SearchCondition {
   field: string
@@ -35,6 +37,7 @@ const AdvancedSearch = ({
   const [logic, setLogic] = useState<'AND' | 'OR'>('AND')
   const [saveSearchName, setSaveSearchName] = useState('')
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const { toasts, showError, removeToast } = useToast()
 
   const fieldOptions = [
     { value: 'id', label: 'Request ID' },
@@ -97,7 +100,7 @@ const AdvancedSearch = ({
     })
 
     if (validConditions.length === 0) {
-      alert('Please add at least one valid search condition')
+      showError('Please add at least one valid search condition')
       return
     }
 
@@ -112,7 +115,7 @@ const AdvancedSearch = ({
 
   const handleSaveSearch = () => {
     if (!saveSearchName.trim()) {
-      alert('Please enter a name for this search')
+      showError('Please enter a name for this search')
       return
     }
 
@@ -124,7 +127,7 @@ const AdvancedSearch = ({
     })
 
     if (validConditions.length === 0) {
-      alert('Please add at least one valid search condition')
+      showError('Please add at least one valid search condition')
       return
     }
 
@@ -558,6 +561,9 @@ const AdvancedSearch = ({
           </div>
         )}
       </div>
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

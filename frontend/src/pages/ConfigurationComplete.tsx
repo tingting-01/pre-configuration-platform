@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { requestAPI, templateAPI } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { useQuery } from 'react-query'
 import { X, Edit2, Plus } from 'lucide-react'
 import TemplateSelector from '../components/TemplateSelector'
+import ToastContainer, { ToastItem } from '../components/ToastContainer'
 import { applyTemplateToForm, createTemplateFromConfig } from '../utils/templateUtils'
 
 const ConfigurationComplete = () => {
@@ -12,6 +13,7 @@ const ConfigurationComplete = () => {
   const [searchParams] = useSearchParams()
   const editRequestId = searchParams.get('edit')
   const templateId = searchParams.get('template')
+  const editTemplateId = searchParams.get('editTemplate')
   
   // 响应式设计状态（保留以备将来使用）
   // const [isMobile, setIsMobile] = useState(false)
@@ -49,6 +51,16 @@ const ConfigurationComplete = () => {
     () => templateAPI.getTemplate(templateId!),
     {
       enabled: !!templateId,
+      retry: false
+    }
+  )
+
+  // 如果是编辑模板模式，加载模板数据
+  const { data: editTemplateData } = useQuery(
+    ['template', editTemplateId],
+    () => templateAPI.getTemplate(editTemplateId!),
+    {
+      enabled: !!editTemplateId,
       retry: false
     }
   )
@@ -255,15 +267,18 @@ const ConfigurationComplete = () => {
     configFileSizes: []
   })
   
-  // 当用户信息可用时，自动填充RAK ID字段（如果当前为空）
+  // 标记用户是否手动编辑过 RAK ID 字段
+  const rakIdManuallyEdited = React.useRef(false)
+  
+  // 当用户信息可用时，自动填充RAK ID字段（仅在初始加载时，如果用户未手动编辑过）
   React.useEffect(() => {
-    if (user?.email && !formData.rakId) {
+    if (user?.email && !formData.rakId && !rakIdManuallyEdited.current) {
       setFormData(prev => ({
         ...prev,
         rakId: user.email
       }))
     }
-  }, [user?.email, formData.rakId])
+  }, [user?.email])
 
   // 生成标签的函数
   const generateTags = () => {
@@ -429,7 +444,7 @@ const ConfigurationComplete = () => {
 
   // 如果是从模板创建，加载模板数据到表单
   useEffect(() => {
-    if (templateData && !editRequestId) {
+    if (templateData && !editRequestId && !editTemplateId) {
       // 应用模板（使用默认变量值或空值）
       const variableValues: Record<string, string> = {}
       templateData.variables.forEach(variable => {
@@ -450,12 +465,35 @@ const ConfigurationComplete = () => {
       
       // 如果有变量，显示提示
       if (templateData.variables.length > 0) {
-        setSuccess(`Template "${templateData.name}" loaded. Please review and fill in the variables.`)
+        showSuccess(`Template "${templateData.name}" loaded. Please review and fill in the variables.`)
       } else {
-        setSuccess(`Template "${templateData.name}" loaded successfully!`)
+        showSuccess(`Template "${templateData.name}" loaded successfully!`)
       }
     }
-  }, [templateData, editRequestId])
+  }, [templateData, editRequestId, editTemplateId])
+
+  // 如果是编辑模板模式，加载模板数据到表单
+  useEffect(() => {
+    if (editTemplateData && !editRequestId) {
+      // 应用模板（使用默认变量值或空值）
+      const variableValues: Record<string, string> = {}
+      editTemplateData.variables.forEach(variable => {
+        variableValues[variable.name] = variable.defaultValue || ''
+      })
+      
+      const templateFormData = applyTemplateToForm(editTemplateData, variableValues)
+      setFormData(prev => ({
+        ...prev,
+        ...templateFormData
+      }))
+      
+      // 设置模板名称和描述
+      setTemplateName(editTemplateData.name)
+      setTemplateDescription(editTemplateData.description || '')
+      
+      showSuccess(`Template "${editTemplateData.name}" loaded for editing. Click "Save as Template" to update.`)
+    }
+  }, [editTemplateData, editRequestId])
 
   // 如果是编辑模式，加载已有配置数据到表单
   useEffect(() => {
@@ -705,20 +743,91 @@ const ConfigurationComplete = () => {
   })
   
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
   const [submitProgress, setSubmitProgress] = useState('')
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [progressToastId, setProgressToastId] = useState<string | null>(null)
+
+  // Toast 工具函数
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'loading' | 'info', duration?: number) => {
+    const id = `toast-${Date.now()}-${Math.random()}`
+    const newToast: ToastItem = { id, message, type, duration }
+    setToasts((prev) => [...prev, newToast])
+    return id
+  }, [])
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id))
+    setProgressToastId((prevId) => (prevId === id ? null : prevId))
+  }, [])
+
+  // 更新进度Toast
+  const updateProgressToast = useCallback((message: string, type: 'success' | 'error' | 'loading' | 'info') => {
+    setProgressToastId((prevId) => {
+      if (prevId) {
+        // 更新现有的Toast
+        setToasts((prev) =>
+          prev.map((toast) =>
+            toast.id === prevId
+              ? { ...toast, message, type, duration: type === 'loading' ? 0 : type === 'error' ? 5000 : 3000 }
+              : toast
+          )
+        )
+        return prevId
+      } else {
+        // 创建新的Toast
+        const id = `toast-${Date.now()}-${Math.random()}`
+        const newToast: ToastItem = {
+          id,
+          message,
+          type,
+          duration: type === 'loading' ? 0 : type === 'error' ? 5000 : 3000
+        }
+        setToasts((prev) => [...prev, newToast])
+        return id
+      }
+    })
+  }, [])
+
+  // 监听 submitProgress 变化，显示 Toast
+  useEffect(() => {
+    if (submitProgress) {
+      if (submitProgress.includes('successfully')) {
+        updateProgressToast(submitProgress, 'success')
+        setProgressToastId(null) // 成功后清除进度Toast ID
+      } else if (submitProgress.includes('Failed') || submitProgress.includes('failed')) {
+        updateProgressToast(submitProgress, 'error')
+        setProgressToastId(null) // 失败后清除进度Toast ID
+      } else if (isLoading) {
+        updateProgressToast(submitProgress || 'Processing...', 'loading')
+      }
+    } else if (!isLoading && progressToastId) {
+      // 如果没有进度且不在加载中，清除进度Toast
+      removeToast(progressToastId)
+    }
+  }, [submitProgress, isLoading, progressToastId, updateProgressToast, removeToast])
+
+  // Toast 显示函数
+  const showError = (message: string) => {
+    showToast(message, 'error', 5000) // 5秒后自动消失
+  }
+
+  const showSuccess = (message: string) => {
+    showToast(message, 'success', 3000) // 3秒后自动消失
+  }
 
   // 验证必填字段
   const validateRequiredFields = () => {
     const errors: Record<string, string> = {}
     
     // Order Information 必填字段验证（仅 RAK ID 和 Name of the company）
-    if (!formData.rakId.trim()) {
+    const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+    const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
+    
+    if (!rakIdValue || rakIdValue.length === 0) {
       errors.rakId = 'RAK ID is required'
     }
-    if (!formData.customerName.trim()) {
+    if (!customerNameValue || customerNameValue.length === 0) {
       errors.customerName = 'Company Name is required'
     }
     
@@ -1325,18 +1434,40 @@ const ConfigurationComplete = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
-    setError('')
-    setSuccess('')
-    setSubmitProgress('Validating form data...')
-
-    // 验证必填字段
+    e.stopPropagation()
+    
+    // 验证必填字段（在设置 loading 之前）
     if (!validateRequiredFields()) {
-      setIsLoading(false)
-      setError('Please fill in all required fields')
-      setSubmitProgress('')
+      const missingFields: string[] = []
+      const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+      const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
+      
+      if (!rakIdValue || rakIdValue.length === 0) {
+        missingFields.push('RAK ID')
+      }
+      if (!customerNameValue || customerNameValue.length === 0) {
+        missingFields.push('Name of the company')
+      }
+      
+      showError(`Please fill in the following required fields: ${missingFields.join(', ')}`)
+      
+      // 滚动到第一个错误字段
+      setTimeout(() => {
+        const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="customerName"]')
+        if (firstErrorField) {
+          firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          const input = firstErrorField.querySelector('input')
+          if (input) {
+            input.focus()
+          }
+        }
+      }, 100)
+      
       return
     }
+    
+    setIsLoading(true)
+    setSubmitProgress('Validating form data...')
 
     // 调试：检查认证状态
     const { token, isAuthenticated } = useAuthStore.getState()
@@ -1571,7 +1702,7 @@ const ConfigurationComplete = () => {
           tags: tags
         })
         setSubmitProgress('')
-        setSuccess('Configuration updated successfully!')
+        showSuccess('Configuration updated successfully!')
         setTimeout(() => {
           navigate('/dashboard')
         }, 2000)
@@ -1585,7 +1716,7 @@ const ConfigurationComplete = () => {
           tags: tags
         })
         setSubmitProgress('')
-        setSuccess('Configuration submitted successfully!')
+        showSuccess('Configuration submitted successfully!')
         setTimeout(() => {
           navigate('/dashboard')
         }, 2000)
@@ -1611,7 +1742,7 @@ const ConfigurationComplete = () => {
       }
       
       console.error('Configuration submit error:', err)
-      setError(errorMessage)
+      showError(errorMessage)
       setSubmitProgress('')
     } finally {
       setIsLoading(false)
@@ -2036,100 +2167,6 @@ const ConfigurationComplete = () => {
             Pre-configuration Request Form
           </h1>
 
-          {/* Messages - Unified at top */}
-          {error && (
-            <div style={{
-              marginBottom: '16px',
-              padding: '12px 16px',
-              background: '#fef2f2',
-              border: '1px solid #fecaca',
-              borderRadius: '6px',
-              color: '#dc2626',
-              fontSize: '14px',
-              textAlign: 'center'
-            }}>
-              {error}
-            </div>
-          )}
-
-          {success && (
-            <div style={{
-              marginBottom: '16px',
-              padding: '12px 16px',
-              background: '#f0fdf4',
-              border: '1px solid #bbf7d0',
-              borderRadius: '6px',
-              color: '#16a34a',
-              fontSize: '14px',
-              textAlign: 'center'
-            }}>
-              {success}
-            </div>
-          )}
-
-          {/* Progress Indicator */}
-          {(isLoading || submitProgress) && (
-            <div style={{
-              marginBottom: '16px',
-              display: 'flex',
-              justifyContent: 'center'
-            }}>
-              <div style={{
-                background: submitProgress.includes('successfully') 
-                  ? '#f0fdf4'
-                  : submitProgress.includes('Failed') || submitProgress.includes('failed')
-                  ? '#fef2f2'
-                  : '#f8fafc',
-                border: submitProgress.includes('successfully')
-                  ? '1px solid #bbf7d0'
-                  : submitProgress.includes('Failed') || submitProgress.includes('failed')
-                  ? '1px solid #fecaca'
-                  : '1px solid #e2e8f0',
-                borderRadius: '0.5rem',
-                padding: '12px 20px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)'
-              }}>
-                {isLoading && !submitProgress.includes('successfully') && !submitProgress.includes('Failed') && !submitProgress.includes('failed') && (
-                  <div style={{
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid #7c3aed',
-                    borderTop: '2px solid transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite'
-                  }} />
-                )}
-                {submitProgress.includes('successfully') ? (
-                  <svg width="16" height="16" fill="#10b981" viewBox="0 0 24 24">
-                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                  </svg>
-                ) : submitProgress.includes('Failed') || submitProgress.includes('failed') ? (
-                  <svg width="16" height="16" fill="#ef4444" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" fill="#7c3aed" viewBox="0 0 24 24">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                  </svg>
-                )}
-                <div style={{
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: submitProgress.includes('successfully')
-                    ? '#059669'
-                    : submitProgress.includes('Failed') || submitProgress.includes('failed')
-                    ? '#dc2626'
-                    : '#7c3aed'
-                }}>
-                  {submitProgress || 'Processing...'}
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Order Information */}
           <section style={{ marginBottom: '32px' }}>
             <div style={{ marginBottom: '20px' }}>
@@ -2196,12 +2233,23 @@ const ConfigurationComplete = () => {
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
                   RAK ID <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
                 </div>
-                <div>
+                <div data-field="rakId">
                   <input
                     type="email"
                     value={formData.rakId}
-                    onChange={(e) => handleInputChange('rakId', e.target.value)}
-                    placeholder="Enter email address"
+                    onChange={(e) => {
+                      rakIdManuallyEdited.current = true
+                      handleInputChange('rakId', e.target.value)
+                      // 清除该字段的错误提示
+                      if (validationErrors.rakId) {
+                        setValidationErrors(prev => {
+                          const newErrors = { ...prev }
+                          delete newErrors.rakId
+                          return newErrors
+                        })
+                      }
+                    }}
+                    placeholder="Enter RAK ID"
                     style={{
                       width: '100%',
                       padding: '12px',
@@ -2264,11 +2312,21 @@ const ConfigurationComplete = () => {
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
                   Name of the company <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
                 </div>
-                <div>
+                <div data-field="customerName">
                   <input
                     type="text"
                     value={formData.customerName}
-                    onChange={(e) => handleInputChange('customerName', e.target.value)}
+                    onChange={(e) => {
+                      handleInputChange('customerName', e.target.value)
+                      // 清除该字段的错误提示
+                      if (validationErrors.customerName) {
+                        setValidationErrors(prev => {
+                          const newErrors = { ...prev }
+                          delete newErrors.customerName
+                          return newErrors
+                        })
+                      }
+                    }}
                     placeholder="Enter company name"
                     style={{
                       width: '100%',
@@ -2291,9 +2349,12 @@ const ConfigurationComplete = () => {
                   Priority
                 </div>
                 <div>
-                  <select
+                  <input
+                    type="text"
                     value={formData.priority}
                     onChange={(e) => handleInputChange('priority', e.target.value)}
+                    list="priority-options"
+                    placeholder="Please select priority"
                     style={{
                       width: '100%',
                       padding: '12px',
@@ -2301,16 +2362,22 @@ const ConfigurationComplete = () => {
                       borderRadius: '6px',
                       fontSize: '14px',
                       outline: 'none',
-                      transition: 'border-color 0.2s, box-shadow 0.2s',
-                      background: '#ffffff',
-                      cursor: 'pointer'
+                      transition: 'border-color 0.2s, box-shadow 0.2s'
                     }}
-                  >
-                    <option value="">Please select priority</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = '#3b82f6'
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)'
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = '#d1d5db'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                  />
+                  <datalist id="priority-options">
+                    <option value="high" />
+                    <option value="medium" />
+                    <option value="low" />
+                  </datalist>
                 </div>
                 
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
@@ -5929,6 +5996,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rakBreathingLight}
                         onChange={(e) => handleInputChange('rakBreathingLight', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RAK Breathing Light</span>
                     </label>
@@ -5938,6 +6006,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rakCountrySettings}
                         onChange={(e) => handleInputChange('rakCountrySettings', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RAK Country Settings</span>
                     </label>
@@ -5947,6 +6016,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rakCustomLogo}
                         onChange={(e) => handleInputChange('rakCustomLogo', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RAK Custom Logo</span>
                     </label>
@@ -5956,6 +6026,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.failoverReboot}
                         onChange={(e) => handleInputChange('failoverReboot', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>Failover Reboot</span>
                     </label>
@@ -5965,6 +6036,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.fieldTestDataProcessor}
                         onChange={(e) => handleInputChange('fieldTestDataProcessor', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>Field Test Data Processor</span>
                     </label>
@@ -5974,6 +6046,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rakOpenClosePort}
                         onChange={(e) => handleInputChange('rakOpenClosePort', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RAK Open/Close Port</span>
                     </label>
@@ -5983,6 +6056,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rakOpenvpnClient}
                         onChange={(e) => handleInputChange('rakOpenvpnClient', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RAK OpenVPN Client</span>
                     </label>
@@ -5992,6 +6066,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.operationAndMaintenance}
                         onChange={(e) => handleInputChange('operationAndMaintenance', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>Operation & Maintenance</span>
                     </label>
@@ -6001,6 +6076,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rakSolarBattery}
                         onChange={(e) => handleInputChange('rakSolarBattery', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RAK Solar Battery</span>
                     </label>
@@ -6010,6 +6086,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rfSpectrumScanner}
                         onChange={(e) => handleInputChange('rfSpectrumScanner', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RF Spectrum Scanner</span>
                     </label>
@@ -6019,6 +6096,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.wifiReboot}
                         onChange={(e) => handleInputChange('wifiReboot', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>WiFi Reboot</span>
                     </label>
@@ -6028,6 +6106,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.rakWireguard}
                         onChange={(e) => handleInputChange('rakWireguard', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>RAK Wireguard</span>
                     </label>
@@ -6037,6 +6116,7 @@ const ConfigurationComplete = () => {
                         type="checkbox"
                         checked={formData.loraPacketLogger}
                         onChange={(e) => handleInputChange('loraPacketLogger', e.target.checked)}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <span style={{ fontSize: '14px' }}>LoRa Packet Logger</span>
                     </label>
@@ -6116,13 +6196,27 @@ const ConfigurationComplete = () => {
                         const files = Array.from(e.target.files || []);
                         if (files.length > 0) {
                           try {
+                            // 动态获取API地址
+                            const getApiBaseUrl = () => {
+                              // @ts-ignore - Vite environment variable
+                              if (import.meta.env?.VITE_API_URL) {
+                                // @ts-ignore
+                                return import.meta.env.VITE_API_URL
+                              }
+                              const hostname = window.location.hostname
+                              if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                                return 'http://localhost:8000'
+                              }
+                              return `http://${hostname}:8000`
+                            }
+                            
                             // 上传文件到服务器
                             const uploadedFiles = [];
                             for (const file of files) {
                               const formDataObj = new FormData();
                               formDataObj.append('file', file);
                               
-                              const response = await fetch('http://localhost:8000/api/files/upload', {
+                              const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
                                 method: 'POST',
                                 headers: {
                                   'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -6138,8 +6232,16 @@ const ConfigurationComplete = () => {
                                   size: file.size
                                 });
                               } else {
-                                console.error('Failed to upload file:', file.name);
-                                alert(`Failed to upload file: ${file.name}`);
+                                const errorText = await response.text();
+                                let errorMessage = 'Unknown error';
+                                try {
+                                  const errorData = JSON.parse(errorText);
+                                  errorMessage = errorData.detail || errorData.message || errorMessage;
+                                } catch {
+                                  errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
+                                }
+                                console.error('Failed to upload file:', file.name, errorMessage);
+                                showError(`Failed to upload file: ${file.name}. ${errorMessage}`);
                               }
                             }
                             
@@ -6156,7 +6258,7 @@ const ConfigurationComplete = () => {
                             e.target.value = '';
                           } catch (error) {
                             console.error('Error uploading files:', error);
-                            alert('Error uploading files');
+                            showError('Error uploading files');
                           }
                         }
                       }}
@@ -6444,6 +6546,7 @@ const ConfigurationComplete = () => {
           <div style={{
             display: 'flex',
             justifyContent: 'center',
+            gap: '25px',
             marginTop: '32px'
           }}>
             <button
@@ -6466,7 +6569,37 @@ const ConfigurationComplete = () => {
             </button>
             <button
               type="button"
-              onClick={() => setShowSaveTemplateDialog(true)}
+              onClick={() => {
+                // 在打开对话框前先验证必填字段
+                if (!validateRequiredFields()) {
+                  const missingFields: string[] = []
+                  const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+                  const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
+                  
+                  if (!rakIdValue || rakIdValue.length === 0) {
+                    missingFields.push('RAK ID')
+                  }
+                  if (!customerNameValue || customerNameValue.length === 0) {
+                    missingFields.push('Name of the company')
+                  }
+                  
+                  showError(`Please fill in the following required fields: ${missingFields.join(', ')}`)
+                  
+                  // 滚动到第一个错误字段
+                  setTimeout(() => {
+                    const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="customerName"]')
+                    if (firstErrorField) {
+                      firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                      const input = firstErrorField.querySelector('input')
+                      if (input) {
+                        input.focus()
+                      }
+                    }
+                  }, 100)
+                  return
+                }
+                setShowSaveTemplateDialog(true)
+              }}
               disabled={isLoading}
               style={{
                 padding: '12px 24px',
@@ -6496,7 +6629,7 @@ const ConfigurationComplete = () => {
               ...templateFormData
             }))
             setShowTemplateSelector(false)
-            setSuccess('Template applied successfully!')
+            showSuccess('Template applied successfully!')
             
             // 注意：使用次数已在 TemplateSelector 的 handleApply 中记录
           }}
@@ -6525,7 +6658,7 @@ const ConfigurationComplete = () => {
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
             }}>
               <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
-                Save as Template
+                {editTemplateId ? 'Edit Template' : 'Save as Template'}
               </h3>
               
               <div style={{ marginBottom: '16px' }}>
@@ -6584,8 +6717,10 @@ const ConfigurationComplete = () => {
                 <button
                   onClick={() => {
                     setShowSaveTemplateDialog(false)
-                    setTemplateName('')
-                    setTemplateDescription('')
+                    if (!editTemplateId) {
+                      setTemplateName('')
+                      setTemplateDescription('')
+                    }
                   }}
                   style={{
                     padding: '10px 20px',
@@ -6602,8 +6737,26 @@ const ConfigurationComplete = () => {
                 </button>
                 <button
                   onClick={async () => {
+                    // 验证模板名称
                     if (!templateName.trim()) {
-                      setError('Template name is required')
+                      showError('Template name is required')
+                      return
+                    }
+
+                    // 验证必填字段
+                    if (!validateRequiredFields()) {
+                      const missingFields: string[] = []
+                      const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+                      const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
+                      
+                      if (!rakIdValue || rakIdValue.length === 0) {
+                        missingFields.push('RAK ID')
+                      }
+                      if (!customerNameValue || customerNameValue.length === 0) {
+                        missingFields.push('Name of the company')
+                      }
+                      
+                      showError(`Please fill in the following required fields: ${missingFields.join(', ')}`)
                       return
                     }
 
@@ -6770,6 +6923,8 @@ const ConfigurationComplete = () => {
                           wisdmUrl: formData.wisdmUrl,
                           logExpiration: formData.logExpiration,
                           shareLog: formData.shareLog,
+                          logRetrievalCycle: formData.logRetrievalCycle,
+                          fileRotationCycle: formData.fileRotationCycle,
                           systemTime: formData.systemTime,
                           ntpEnabled: formData.ntpEnabled,
                           ntpServers: formData.ntpServers,
@@ -6805,21 +6960,34 @@ const ConfigurationComplete = () => {
                       // 提取变量
                       const { configData: templateConfigData, variables } = createTemplateFromConfig(configData)
 
-                      // 创建模板（固定使用Custom分类）
-                      await templateAPI.createTemplate({
-                        name: templateName,
-                        description: templateDescription || undefined,
-                        category: 'Custom',
-                        configData: templateConfigData,
-                        variables: variables
-                      })
-
-                      setSuccess('Template saved successfully!')
-                      setShowSaveTemplateDialog(false)
-                      setTemplateName('')
-                      setTemplateDescription('')
+                      if (editTemplateId) {
+                        // 更新模板
+                        await templateAPI.updateTemplate(editTemplateId, {
+                          name: templateName,
+                          description: templateDescription || undefined,
+                          configData: templateConfigData,
+                          variables: variables
+                        })
+                        showSuccess('Template updated successfully!')
+                        setShowSaveTemplateDialog(false)
+                        // 导航回模板页面
+                        navigate('/templates')
+                      } else {
+                        // 创建模板（固定使用Custom分类）
+                        await templateAPI.createTemplate({
+                          name: templateName,
+                          description: templateDescription || undefined,
+                          category: 'Custom',
+                          configData: templateConfigData,
+                          variables: variables
+                        })
+                        showSuccess('Template saved successfully!')
+                        setShowSaveTemplateDialog(false)
+                        setTemplateName('')
+                        setTemplateDescription('')
+                      }
                     } catch (err: any) {
-                      setError(err.message || 'Failed to save template')
+                      showError(err.message || 'Failed to save template')
                     }
                   }}
                   style={{
@@ -6840,6 +7008,9 @@ const ConfigurationComplete = () => {
           </div>
         )}
       </div>
+
+      {/* Toast Container - 悬浮通知 */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

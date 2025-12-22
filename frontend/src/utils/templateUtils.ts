@@ -153,6 +153,8 @@ const CONFIG_TO_FORM_MAPPING: Record<string, string> = {
   'system.wisdmUrl': 'wisdmUrl',
   'system.logExpiration': 'logExpiration',
   'system.shareLog': 'shareLog',
+  'system.logRetrievalCycle': 'logRetrievalCycle',
+  'system.fileRotationCycle': 'fileRotationCycle',
   'system.systemTime': 'systemTime',
   'system.ntpEnabled': 'ntpEnabled',
   'system.ntpServers': 'ntpServers',
@@ -268,9 +270,17 @@ export function templateConfigToFormData(
         formData[formField] = value
       } else if (formField === 'ntpServers' && Array.isArray(value)) {
         formData[formField] = value
-      } else if (formField.endsWith('Files') && Array.isArray(value)) {
+      } else if (formField === 'extensionFiles' && Array.isArray(value)) {
+        // 处理 extensionFiles：同时设置 extensionFiles, extensionFileNames, extensionFileSizes
         formData[formField] = value
+        formData['extensionFileNames'] = value.map((f: any) => f.name || '')
+        formData['extensionFileSizes'] = value.map((f: any) => f.size || 0)
       } else if (formField === 'configFiles' && Array.isArray(value)) {
+        // 处理 configFiles：同时设置 configFiles, configFileNames, configFileSizes
+        formData[formField] = value
+        formData['configFileNames'] = value.map((f: any) => f.name || '')
+        formData['configFileSizes'] = value.map((f: any) => f.size || 0)
+      } else if (formField.endsWith('Files') && Array.isArray(value)) {
         formData[formField] = value
       } else if (formField === 'configFileNames' && Array.isArray(value)) {
         formData[formField] = value

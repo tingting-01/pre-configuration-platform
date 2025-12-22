@@ -6,6 +6,8 @@ import AssignmentNotification from '../components/AssignmentNotification'
 import AdvancedSearch, { AdvancedSearchConfig } from '../components/AdvancedSearch'
 import { matchesSearchConfig } from '../utils/searchUtils'
 import { exportMultipleRequestsToExcel } from '../utils/exportUtils'
+import { useToast } from '../hooks/useToast'
+import ToastContainer from '../components/ToastContainer'
 
 const DashboardOriginal = () => {
   const [requests, setRequests] = useState<any[]>([])
@@ -37,6 +39,7 @@ const DashboardOriginal = () => {
   const [isExporting, setIsExporting] = useState(false)
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const { toasts, showError, removeToast } = useToast()
 
   // 切换筛选模式、搜索或标签筛选时，重置到第一页
   useEffect(() => {
@@ -337,7 +340,7 @@ const DashboardOriginal = () => {
   // 批量导出选中的 requests
   const handleBatchExport = async () => {
     if (selectedRequests.size === 0) {
-      alert('Please select at least one request to export.')
+      showError('Please select at least one request to export.')
       return
     }
     
@@ -1055,7 +1058,7 @@ const DashboardOriginal = () => {
                             {getTagTypeDisplayName(type)}
                           </span>
                           <span style={{
-                            fontSize: '11px',
+                            fontSize: '12px',
                             color: '#6b7280',
                             background: defaultColors.lightBg,
                             padding: '2px 6px',
@@ -1529,7 +1532,7 @@ const DashboardOriginal = () => {
                       background: '#f9fafb',
                       width: 'auto',
                       minWidth: '40px',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       <input
@@ -1557,7 +1560,7 @@ const DashboardOriginal = () => {
                       width: 'auto',
                       minWidth: '80px',
                       whiteSpace: 'nowrap',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Request ID
@@ -1571,7 +1574,7 @@ const DashboardOriginal = () => {
                       width: 'auto',
                       minWidth: '80px',
                       whiteSpace: 'nowrap',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Company
@@ -1585,7 +1588,7 @@ const DashboardOriginal = () => {
                       width: 'auto',
                       minWidth: '100px',
                       whiteSpace: 'nowrap',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Creator
@@ -1599,7 +1602,7 @@ const DashboardOriginal = () => {
                       width: 'auto',
                       minWidth: '80px',
                       whiteSpace: 'nowrap',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Priority
@@ -1613,7 +1616,7 @@ const DashboardOriginal = () => {
                       width: 'auto',
                       minWidth: '130px',
                       whiteSpace: 'nowrap',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Submit Time
@@ -1627,7 +1630,7 @@ const DashboardOriginal = () => {
                       width: 'auto',
                       minWidth: '180px',
                       whiteSpace: 'nowrap',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Workflow Process
@@ -1640,7 +1643,7 @@ const DashboardOriginal = () => {
                       background: '#f9fafb',
                       width: 'auto',
                       minWidth: '100px',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Assignee
@@ -1653,7 +1656,7 @@ const DashboardOriginal = () => {
                       background: '#f9fafb',
                       width: 'auto',
                       minWidth: '120px',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
                       Actions
@@ -1662,7 +1665,7 @@ const DashboardOriginal = () => {
                 </thead>
                 <tbody>
                   {paginatedRequests.map((request: any) => (
-                    <tr key={request.id} style={{ borderBottom: '1px solid #e5e7eb', lineHeight: '1.3' }}>
+                    <tr key={request.id} style={{ borderBottom: '1px solid #e5e7eb', lineHeight: '3' }}>
                       <td style={{ padding: '4px 10px' }}>
                         <input
                           type="checkbox"
@@ -1690,7 +1693,7 @@ const DashboardOriginal = () => {
                             background: request.creatorEmail === user?.email ? '#10b981' : '#6b7280'
                           }}></div>
                           <span style={{
-                            fontSize: '10px',
+                            fontSize: '12px',
                             color: request.creatorEmail === user?.email ? '#10b981' : '#6b7280',
                             background: request.creatorEmail === user?.email ? '#ecfdf5' : '#f3f4f6',
                             padding: '1px 4px',
@@ -1716,7 +1719,7 @@ const DashboardOriginal = () => {
                           }
                           
                           if (!priority) {
-                            return <span style={{ color: '#9ca3af', fontSize: '10px' }}>-</span>
+                            return <span style={{ color: '#9ca3af', fontSize: '12px' }}>-</span>
                           }
                           
                           const priorityMap: Record<string, { label: string; bg: string; text: string; border: string }> = {
@@ -1729,7 +1732,7 @@ const DashboardOriginal = () => {
                           
                           return (
                             <span style={{
-                              fontSize: '10px',
+                              fontSize: '12px',
                               fontWeight: '500',
                               color: priorityInfo.text,
                               background: priorityInfo.bg,
@@ -1763,7 +1766,7 @@ const DashboardOriginal = () => {
                               style={{
                                 padding: '2px 6px',
                                 borderRadius: '0.375rem',
-                                fontSize: '10px',
+                                fontSize: '12px',
                                 fontWeight: '500',
                                 border: '1px solid #d1d5db',
                                 background: getStatusColor(request.status).background,
@@ -1830,7 +1833,7 @@ const DashboardOriginal = () => {
                                   color: request.assignee ? '#4338ca' : '#6b7280',
                                   border: '1px solid #d1d5db',
                                   borderRadius: '0.375rem',
-                                  fontSize: '10px',
+                                  fontSize: '12px',
                                   fontWeight: '500',
                                   cursor: assigningRequest === request.id ? 'not-allowed' : 'pointer',
                                   transition: 'all 0.2s ease',
@@ -1886,7 +1889,7 @@ const DashboardOriginal = () => {
                                     style={{
                                       padding: '6px 10px',
                                       cursor: 'pointer',
-                                      fontSize: '10px',
+                                      fontSize: '12px',
                                       color: '#6b7280',
                                       borderBottom: '1px solid #e5e7eb',
                                       lineHeight: '1.3'
@@ -1904,7 +1907,7 @@ const DashboardOriginal = () => {
                                         style={{
                                           padding: '6px 10px',
                                           cursor: 'pointer',
-                                          fontSize: '10px',
+                                          fontSize: '12px',
                                           color: request.assignee === userOption.email ? '#4338ca' : '#1f2937',
                                           background: request.assignee === userOption.email ? '#eef2ff' : '#ffffff',
                                           fontWeight: request.assignee === userOption.email ? '500' : '400',
@@ -1927,7 +1930,7 @@ const DashboardOriginal = () => {
                                   ) : (
                                     <div style={{
                                       padding: '6px 10px',
-                                      fontSize: '10px',
+                                      fontSize: '12px',
                                       color: '#9ca3af',
                                       fontStyle: 'italic'
                                     }}>
@@ -1982,7 +1985,7 @@ const DashboardOriginal = () => {
                                 color: '#ffffff',
                                 border: 'none',
                                 borderRadius: '0.375rem',
-                                fontSize: '10px',
+                                fontSize: '12px',
                                 fontWeight: '500',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s ease',
@@ -2002,7 +2005,7 @@ const DashboardOriginal = () => {
                                 color: '#9ca3af',
                                 border: 'none',
                                 borderRadius: '0.375rem',
-                                fontSize: '10px',
+                                fontSize: '12px',
                                 fontWeight: '500',
                                 cursor: 'not-allowed',
                                 lineHeight: '1.3',
@@ -2353,6 +2356,9 @@ const DashboardOriginal = () => {
           localStorage.setItem('savedSearches', JSON.stringify(newSavedSearches))
         }}
       />
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

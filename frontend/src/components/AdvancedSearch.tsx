@@ -219,7 +219,6 @@ const AdvancedSearch = ({
             <div key={index} style={{
               display: 'flex',
               gap: '8px',
-              alignItems: 'flex-start',
               marginBottom: '12px',
               padding: '12px',
               background: '#f9fafb',
@@ -367,7 +366,7 @@ const AdvancedSearch = ({
                     type="checkbox"
                     checked={condition.caseSensitive || false}
                     onChange={(e) => updateCondition(index, { caseSensitive: e.target.checked })}
-                    style={{ width: '16px', height: '16px' }}
+                    style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                   />
                   Case
                 </label>
@@ -421,7 +420,7 @@ const AdvancedSearch = ({
               value="AND"
               checked={logic === 'AND'}
               onChange={() => setLogic('AND')}
-              style={{ width: '16px', height: '16px' }}
+              style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
             />
             <span style={{ fontSize: '14px', color: '#374151' }}>AND (all conditions)</span>
           </label>
@@ -431,7 +430,7 @@ const AdvancedSearch = ({
               value="OR"
               checked={logic === 'OR'}
               onChange={() => setLogic('OR')}
-              style={{ width: '16px', height: '16px' }}
+              style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
             />
             <span style={{ fontSize: '14px', color: '#374151' }}>OR (any condition)</span>
           </label>

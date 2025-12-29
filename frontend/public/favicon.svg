@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Dark purple background -->
+  <rect width="64" height="64" fill="#2E0F50"/>
+  
+  <!-- Group to center the entire logo -->
+  <g transform="translate(32, 32)">
+    <!-- "Wis" text in light purple/gray with semi-transparent box -->
+    <rect x="-18" y="-10" width="20" height="28" fill="rgba(139, 92, 246, 0.3)" rx="2"/>
+    <text x="-8" y="8" font-family="Arial, sans-serif" font-size="14" font-weight="600" fill="#a78bfa" text-anchor="middle">Wis</text>
+    
+    <!-- "Gate" text in bright white -->
+    <text x="8" y="8" font-family="Arial, sans-serif" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Gate</text>
+  </g>
+</svg>
+

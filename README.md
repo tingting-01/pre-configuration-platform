@@ -86,6 +86,75 @@ npm run dev
 
 The frontend will run on `http://localhost:3000`
 
+## Deployment
+
+### Pre-deployment Checklist
+
+1. **Backend Environment**
+   - Ensure Python 3.8+ is installed
+   - Database file `auth_prototype.db` exists (will be created automatically on first run)
+   - `uploads/` directory exists for file storage
+
+2. **Frontend Environment**
+   - Ensure Node.js 16+ is installed
+   - Set production API URL via environment variable
+
+### Production Build
+
+#### Backend
+
+1. Install dependencies:
+```bash
+cd backend
+pip install -r requirements-simple.txt
+```
+
+2. Run with production server:
+```bash
+uvicorn main_simple:app --host 0.0.0.0 --port 8000
+```
+
+#### Frontend
+
+1. Set environment variable (optional, defaults to relative path):
+```bash
+export VITE_API_URL=http://your-backend-url:8000
+```
+
+2. Build for production:
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+3. The built files will be in `frontend/dist/`. Serve with any static file server:
+   - **Nginx**: Copy `dist/` contents to web root
+   - **Node.js**: Use `npm run preview` for testing
+   - **Apache**: Copy `dist/` contents to DocumentRoot
+
+### Docker Deployment (Optional)
+
+If using Docker Compose:
+
+1. Ensure Docker and Docker Compose are installed
+
+2. Update `docker-compose.yml` with production settings:
+   - Set `VITE_API_URL` environment variable for frontend
+   - Configure volume mounts for persistent data
+
+3. Build and start:
+```bash
+docker-compose up -d --build
+```
+
+### Post-deployment
+
+- Verify backend is accessible at configured port (default: 8000)
+- Verify frontend can connect to backend API
+- Check file uploads directory has write permissions
+- Ensure database file has proper permissions
+
 ## Default Accounts
 
 - **Admin**: `admin@rakwireless.com` / `rakwireless`

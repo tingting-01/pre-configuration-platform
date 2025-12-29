@@ -2696,7 +2696,7 @@ const ConfigurationComplete = () => {
                                 value="icmp"
                                 checked={formData.ethernetTrackingMethod === 'icmp'}
                                 onChange={(e) => handleInputChange('ethernetTrackingMethod', e.target.value)}
-                                style={{ accentColor: '#6b7280' }}
+                                style={{ accentColor: '#7c3aed' }}
                               />
                               <span style={{ fontSize: '12px', color: '#374151' }}>ICMP</span>
                             </label>
@@ -2707,7 +2707,7 @@ const ConfigurationComplete = () => {
                                 value="http"
                                 checked={formData.ethernetTrackingMethod === 'http'}
                                 onChange={(e) => handleInputChange('ethernetTrackingMethod', e.target.value)}
-                                style={{ accentColor: '#6b7280' }}
+                                style={{ accentColor: '#7c3aed' }}
                               />
                               <span style={{ fontSize: '12px', color: '#374151' }}>HTTP</span>
                             </label>
@@ -3016,7 +3016,7 @@ const ConfigurationComplete = () => {
                                 value="icmp"
                                 checked={formData.wifiTrackingMethod === 'icmp'}
                                 onChange={(e) => handleInputChange('wifiTrackingMethod', e.target.value)}
-                                style={{ accentColor: '#6b7280' }}
+                                style={{ accentColor: '#7c3aed' }}
                               />
                               <span style={{ fontSize: '12px', color: '#374151' }}>ICMP</span>
                             </label>
@@ -3027,7 +3027,7 @@ const ConfigurationComplete = () => {
                                 value="http"
                                 checked={formData.wifiTrackingMethod === 'http'}
                                 onChange={(e) => handleInputChange('wifiTrackingMethod', e.target.value)}
-                                style={{ accentColor: '#6b7280' }}
+                                style={{ accentColor: '#7c3aed' }}
                               />
                               <span style={{ fontSize: '12px', color: '#374151' }}>HTTP</span>
                             </label>
@@ -3309,7 +3309,7 @@ const ConfigurationComplete = () => {
                                 value="icmp"
                                 checked={formData.cellularTrackingMethod === 'icmp'}
                                 onChange={(e) => handleInputChange('cellularTrackingMethod', e.target.value)}
-                                style={{ accentColor: '#6b7280' }}
+                                style={{ accentColor: '#7c3aed' }}
                               />
                               <span style={{ fontSize: '12px', color: '#374151' }}>ICMP</span>
                             </label>
@@ -3320,7 +3320,7 @@ const ConfigurationComplete = () => {
                                 value="http"
                                 checked={formData.cellularTrackingMethod === 'http'}
                                 onChange={(e) => handleInputChange('cellularTrackingMethod', e.target.value)}
-                                style={{ accentColor: '#6b7280' }}
+                                style={{ accentColor: '#7c3aed' }}
                               />
                               <span style={{ fontSize: '12px', color: '#374151' }}>HTTP</span>
                             </label>
@@ -3796,7 +3796,7 @@ const ConfigurationComplete = () => {
                         value="packet-forwarder"
                         checked={formData.loraMode === 'packet-forwarder'}
                         onChange={(e) => handleInputChange('loraMode', e.target.value)}
-                        style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                         Packet Forwarder
@@ -3809,7 +3809,7 @@ const ConfigurationComplete = () => {
                         value="basic-station"
                         checked={formData.loraMode === 'basic-station'}
                         onChange={(e) => handleInputChange('loraMode', e.target.value)}
-                        style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
+                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                       />
                       <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                         Basic Station
@@ -3863,7 +3863,7 @@ const ConfigurationComplete = () => {
                           value="udp-gwmp"
                           checked={formData.loraSubmode === 'udp-gwmp'}
                           onChange={(e) => handleInputChange('loraSubmode', e.target.value)}
-                          style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
+                          style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                         />
                         <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                           Semtech UDP GWMP Protocol
@@ -3876,7 +3876,7 @@ const ConfigurationComplete = () => {
                           value="mqtt-bridge"
                           checked={formData.loraSubmode === 'mqtt-bridge'}
                           onChange={(e) => handleInputChange('loraSubmode', e.target.value)}
-                          style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
+                          style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                         />
                         <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                           LoRa® Gateway MQTT Bridge

@@ -7,6 +7,12 @@ import History from '../components/History'
 import { useToast } from '../hooks/useToast'
 import ToastContainer from '../components/ToastContainer'
 import { 
+  cleanConfigAttachments, 
+  filterModifiedConfig, 
+  convertToCSV,
+  exportSingleRequestToExcel 
+} from '../utils/exportUtils'
+import { 
   ArrowLeft, 
   Download, 
   CheckCircle,
@@ -1185,22 +1191,18 @@ const RequestDetails = () => {
         assignee: request.assignee
       }
 
-      // 生成 CSV 文件
-      const csvContent = convertToCSV(modifiedConfig, requestInfo)
+      // 生成 Excel 文件
+      const excelBlob = await exportSingleRequestToExcel(modifiedConfig, requestInfo)
       
-      // 调试：打印 CSV 行数
-      const csvLines = csvContent.split('\n')
-      console.log(`CSV generated with ${csvLines.length} lines (including header)`)
-
-      const csvBlob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' }) // 添加 BOM 以支持 Excel 正确显示中文
-      const csvUrl = window.URL.createObjectURL(csvBlob)
-      const csvLink = document.createElement('a')
-      csvLink.href = csvUrl
-      csvLink.download = `request_${request.id}_config.csv`
-      document.body.appendChild(csvLink)
-      csvLink.click()
-      window.URL.revokeObjectURL(csvUrl)
-      document.body.removeChild(csvLink)
+      // 下载 Excel 文件
+      const excelUrl = window.URL.createObjectURL(excelBlob)
+      const excelLink = document.createElement('a')
+      excelLink.href = excelUrl
+      excelLink.download = `request_${request.id}_config.xlsx`
+      document.body.appendChild(excelLink)
+      excelLink.click()
+      window.URL.revokeObjectURL(excelUrl)
+      document.body.removeChild(excelLink)
 
       // 自动下载所有附件
       const attachments = collectAttachments()
@@ -1222,7 +1224,7 @@ const RequestDetails = () => {
         }
       }
 
-      showSuccess(`Export completed! Configuration CSV and ${attachments.length} attachment(s) downloaded.`)
+      showSuccess(`Export completed! Configuration Excel and ${attachments.length} attachment(s) downloaded.`)
     } catch (error) {
       console.error('Error exporting configuration:', error)
       showError('Failed to export configuration. Please try again.')
@@ -1328,10 +1330,6 @@ const RequestDetails = () => {
               <FileDown className="h-4 w-4 mr-2" />
               {isExporting ? 'Exporting...' : 'Export'}
             </button>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-              <User className="h-4 w-4 mr-1" />
-              <span>{getCreatorDisplay()}</span>
-            </span>
           </div>
         </div>
       </div>

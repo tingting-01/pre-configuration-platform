@@ -618,3 +618,44 @@ export const exportMultipleRequestsToExcel = async (
   return new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 }
 
+// 导出单个 request 到 Excel 文件
+export const exportSingleRequestToExcel = async (
+  config: any,
+  requestInfo: any
+): Promise<Blob> => {
+  // 动态导入 xlsx 库
+  const XLSX = await import('xlsx')
+  
+  // 生成单个 request 的 CSV 数据
+  const csvContent = convertToCSV(config, requestInfo)
+  
+  // 使用 xlsx 库的 CSV 解析功能将 CSV 转换为工作表
+  const workbook_temp = XLSX.read(csvContent, { type: 'string' })
+  const worksheet = workbook_temp.Sheets[workbook_temp.SheetNames[0]]
+  
+  // 设置列宽
+  const maxWidths: number[] = []
+  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
+  for (let col = range.s.c; col <= range.e.c; col++) {
+    let maxWidth = 10
+    for (let row = range.s.r; row <= range.e.r; row++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+      const cell = worksheet[cellAddress]
+      if (cell && cell.v) {
+        const cellValue = String(cell.v)
+        maxWidth = Math.max(maxWidth, Math.min(cellValue.length, 50))
+      }
+    }
+    maxWidths.push(maxWidth)
+  }
+  worksheet['!cols'] = maxWidths.map(width => ({ wch: width }))
+  
+  // 创建工作簿并添加工作表
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Configuration')
+  
+  // 将工作簿转换为二进制数据
+  const excelBuffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })
+  return new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+}
+

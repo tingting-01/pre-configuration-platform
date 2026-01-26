@@ -7,8 +7,18 @@ import ToastContainer from '../components/ToastContainer'
 
 const TemplatesPage = () => {
   const navigate = useNavigate()
-  const { user } = useAuthStore()
-  const { toasts, showError, removeToast } = useToast()
+  const { user, logout } = useAuthStore()
+  const { toasts, showError, showSuccess, removeToast } = useToast()
+  
+  const handleLogout = () => {
+    setShowLogoutConfirm(true)
+  }
+
+  const confirmLogout = () => {
+    logout()
+    navigate('/login')
+    setShowLogoutConfirm(false)
+  }
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
@@ -17,6 +27,7 @@ const TemplatesPage = () => {
   const [showDetailsDialog, setShowDetailsDialog] = useState(false)
   const [templateDetails, setTemplateDetails] = useState<Template | null>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   useEffect(() => {
     loadTemplates()
@@ -41,8 +52,10 @@ const TemplatesPage = () => {
       await templateAPI.deleteTemplate(templateId)
       setTemplates(templates.filter(t => t.id !== templateId))
       setShowDeleteConfirm(null)
+      showSuccess('Template deleted successfully')
     } catch (err: any) {
-      showError(err.message || 'Failed to delete template')
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to delete template'
+      showError(errorMessage)
     }
   }
 
@@ -264,104 +277,181 @@ const TemplatesPage = () => {
     <div style={{
       minHeight: '100vh',
       background: '#f9fafb',
-      padding: '24px'
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: '#1f2937',
+      lineHeight: 1.6
     }}>
       {/* Header */}
       <div style={{
         background: '#ffffff',
-        borderRadius: '0.5rem',
-        padding: '24px',
-        marginBottom: '24px',
-        boxShadow: '0 1px 3px 0 rgba(0,0,0,0.1)'
+        borderBottom: '1px solid #e5e7eb',
+        padding: '16px 24px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h1 style={{ margin: '0 0 8px 0', fontSize: '24px', fontWeight: '600' }}>
-              Template Library
-            </h1>
-            <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
-              Manage and reuse configuration templates
-            </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              background: '#4c1d95',
+              borderRadius: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)'
+            }}>
+              <svg width="20" height="20" fill="#ffffff" viewBox="0 0 24 24">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: '#4c1d95',
+              fontFamily: 'Inter, sans-serif'
+            }}>
+              RAK
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div style={{
+            fontSize: '20px',
+            fontWeight: '600',
+            color: '#1f2937',
+            fontFamily: 'Inter, sans-serif'
+          }}>
+            WisGateOS2 Pre-configuration Database
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            onClick={() => navigate('/configuration')}
+            style={{
+              padding: '8px 16px',
+              background: '#7c3aed',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '0.5rem',
+              fontSize: '14px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'Inter, sans-serif'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#6d28d9'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#7c3aed'
+            }}
+          >
+            + Create Template
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              background: '#4c1d95',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}>
+              {(user?.name && user.name.trim()) 
+                ? user.name.charAt(0).toUpperCase() 
+                : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')}
+            </div>
+            <span style={{ fontSize: '14px', color: '#6b7280' }}>
+              {(user?.name && user.name.trim()) 
+                ? user.name 
+                : (user?.email ? user.email.split('@')[0] : 'User')}
+            </span>
             <button
-              onClick={() => navigate('/configuration')}
+              onClick={handleLogout}
               style={{
-                padding: '10px 20px',
-                background: '#7c3aed',
+                padding: '6px 12px',
+                background: '#ef4444',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: '0.375rem',
-                fontSize: '14px',
+                fontSize: '12px',
                 fontWeight: '500',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
               }}
             >
-              + Create Template
-            </button>
-            <button
-              onClick={() => navigate('/dashboard')}
-              style={{
-                padding: '10px 20px',
-                background: '#f3f4f6',
-                color: '#374151',
-                border: '1px solid #e5e7eb',
-                borderRadius: '0.375rem',
-                fontSize: '14px',
-                fontWeight: '500',
-                cursor: 'pointer'
-              }}
-            >
-              Back to Dashboard
+              Logout
             </button>
           </div>
         </div>
       </div>
 
-      {/* Search */}
-      <div style={{
-        background: '#ffffff',
-        borderRadius: '0.5rem',
-        padding: '16px',
-        marginBottom: '24px',
-        boxShadow: '0 1px 3px 0 rgba(0,0,0,0.1)'
-      }}>
-        <input
-          type="text"
-          placeholder="Search templates..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            border: '1px solid #e5e7eb',
-            borderRadius: '0.375rem',
-            fontSize: '14px'
-          }}
-        />
-      </div>
+      {/* Main Content */}
+      <div style={{ padding: '24px', marginTop: '80px' }}>
+        {/* Page Title */}
+        <div style={{ marginBottom: '24px' }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '600', color: '#1f2937' }}>
+            Template Library
+          </h1>
+          <p style={{ margin: 0, color: '#6b7280', fontSize: '16px' }}>
+            Manage and reuse configuration templates
+          </p>
+        </div>
 
-      {/* Templates Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '40px' }}>Loading templates...</div>
-      ) : filteredTemplates.length === 0 ? (
+        {/* Search */}
         <div style={{
           background: '#ffffff',
           borderRadius: '0.5rem',
-          padding: '40px',
-          textAlign: 'center',
+          padding: '16px',
+          marginBottom: '24px',
           boxShadow: '0 1px 3px 0 rgba(0,0,0,0.1)'
         }}>
-          <p style={{ color: '#6b7280', fontSize: '16px', margin: 0 }}>
-            No templates found. Create your first template from the configuration page.
-          </p>
+          <input
+            type="text"
+            placeholder="Search templates..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              border: '1px solid #e5e7eb',
+              borderRadius: '0.375rem',
+              fontSize: '14px'
+            }}
+          />
         </div>
-      ) : (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: '20px'
-        }}>
+
+        {/* Templates Grid */}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>Loading templates...</div>
+        ) : filteredTemplates.length === 0 ? (
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '0.5rem',
+            padding: '40px',
+            textAlign: 'center',
+            boxShadow: '0 1px 3px 0 rgba(0,0,0,0.1)'
+          }}>
+            <p style={{ color: '#6b7280', fontSize: '16px', margin: 0 }}>
+              No templates found. Create your first template from the configuration page.
+            </p>
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+            gap: '20px'
+          }}>
           {filteredTemplates.map(template => (
             <div
               key={template.id}
@@ -494,10 +584,10 @@ const TemplatesPage = () => {
               </div>
             </div>
           ))}
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* Delete Confirmation */}
+        {/* Delete Confirmation */}
       {showDeleteConfirm && (
         <div style={{
           position: 'fixed',
@@ -556,9 +646,9 @@ const TemplatesPage = () => {
             </div>
           </div>
         </div>
-      )}
+        )}
 
-      {/* Template Details Dialog */}
+        {/* Template Details Dialog */}
       {showDetailsDialog && (
         <div style={{
           position: 'fixed',
@@ -810,10 +900,72 @@ const TemplatesPage = () => {
             )}
           </div>
         </div>
-      )}
+        )}
 
-      {/* Toast Container */}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+        {/* Toast Container */}
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+        {/* Logout Confirmation Dialog */}
+        {showLogoutConfirm && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '0.5rem',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+            }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
+                Confirm Logout
+              </h3>
+              <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>
+                Are you sure you want to logout?
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setShowLogoutConfirm(false)}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#f3f4f6',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '0.375rem',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmLogout}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '0.375rem',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

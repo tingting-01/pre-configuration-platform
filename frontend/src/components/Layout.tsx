@@ -21,10 +21,16 @@ const Layout = ({ children }: LayoutProps) => {
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   const handleLogout = () => {
+    setShowLogoutConfirm(true)
+  }
+
+  const confirmLogout = () => {
     logout()
     navigate('/login')
+    setShowLogoutConfirm(false)
   }
 
   const navigation = [

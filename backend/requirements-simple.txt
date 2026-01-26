@@ -6,3 +6,4 @@ cryptography
 passlib
 python-dotenv
 pydantic-settings
+boto3>=1.28.0

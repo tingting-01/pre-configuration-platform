@@ -31,6 +31,7 @@ const ConfigurationComplete = () => {
   const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   
   // 检查认证状态
   const { isAuthenticated, token, user } = useAuthStore()
@@ -1891,8 +1892,7 @@ const ConfigurationComplete = () => {
             </span>
             <button
               onClick={() => {
-                useAuthStore.getState().logout()
-                navigate('/login')
+                setShowLogoutConfirm(true)
               }}
               style={{
                 padding: '6px 12px',
@@ -6985,6 +6985,8 @@ const ConfigurationComplete = () => {
                         setShowSaveTemplateDialog(false)
                         setTemplateName('')
                         setTemplateDescription('')
+                        // 导航到模板页面
+                        navigate('/templates')
                       }
                     } catch (err: any) {
                       showError(err.message || 'Failed to save template')
@@ -7002,6 +7004,71 @@ const ConfigurationComplete = () => {
                   }}
                 >
                   Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Logout Confirmation Dialog */}
+        {showLogoutConfirm && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: '#ffffff',
+              borderRadius: '0.5rem',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+            }}>
+              <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
+                Confirm Logout
+              </h3>
+              <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>
+                Are you sure you want to logout?
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setShowLogoutConfirm(false)}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#f3f4f6',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '0.375rem',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    useAuthStore.getState().logout()
+                    navigate('/login')
+                    setShowLogoutConfirm(false)
+                  }}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '0.375rem',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Logout
                 </button>
               </div>
             </div>

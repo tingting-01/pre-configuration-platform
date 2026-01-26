@@ -248,32 +248,57 @@ class DynamoDBClient:
             traceback.print_exc()
             return False
     
-    def update_request(self, request_id: str, update_data: dict) -> bool:
+    def update_request(self, request_id: str, update_data: dict, remove_fields: list = None) -> bool:
         """更新请求"""
         try:
             # 构建更新表达式
-            update_expr = "SET "
+            set_expr_parts = []
+            remove_expr_parts = []
             expr_attr_names = {}
             expr_attr_values = {}
             
+            # 处理 SET 操作
             for key, value in update_data.items():
                 attr_name = f"#{key}"
                 attr_value = f":{key}"
-                update_expr += f"{attr_name} = {attr_value}, "
+                set_expr_parts.append(f"{attr_name} = {attr_value}")
                 expr_attr_names[attr_name] = key
                 # 处理 JSON 字段
                 if key in ['config_data', 'changes', 'original_config', 'tags']:
                     value = json.dumps(value) if not isinstance(value, str) else value
                 expr_attr_values[attr_value] = convert_to_dynamodb_item({key: value})[key]
             
-            update_expr = update_expr.rstrip(", ")
+            # 处理 REMOVE 操作
+            if remove_fields:
+                for field in remove_fields:
+                    attr_name = f"#{field}"
+                    remove_expr_parts.append(attr_name)
+                    expr_attr_names[attr_name] = field
             
-            self.tables['requests'].update_item(
-                Key={'request_id': request_id},
-                UpdateExpression=update_expr,
-                ExpressionAttributeNames=expr_attr_names,
-                ExpressionAttributeValues=expr_attr_values
-            )
+            # 构建完整的更新表达式
+            update_expr_parts = []
+            if set_expr_parts:
+                update_expr_parts.append(f"SET {', '.join(set_expr_parts)}")
+            if remove_expr_parts:
+                update_expr_parts.append(f"REMOVE {', '.join(remove_expr_parts)}")
+            
+            if not update_expr_parts:
+                return False
+            
+            update_expr = " ".join(update_expr_parts)
+            
+            # 构建update_item参数
+            update_params = {
+                'Key': {'request_id': request_id},
+                'UpdateExpression': update_expr
+            }
+            
+            if expr_attr_names:
+                update_params['ExpressionAttributeNames'] = expr_attr_names
+            if expr_attr_values:
+                update_params['ExpressionAttributeValues'] = expr_attr_values
+            
+            self.tables['requests'].update_item(**update_params)
             return True
         except ClientError as e:
             print(f"Error updating request: {e}")

@@ -712,14 +712,16 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         if "status" in request_data:
             update_data['status'] = request_data["status"]
         
+        # 需要删除的字段列表
+        remove_fields = []
+        
         if "assignee" in request_data:
-            # 如果新值是空字符串，不包含该字段（避免 GSI 键为空字符串的错误）
             new_assignee = request_data.get("assignee", "")
-            if new_assignee:
+            # 如果新值是空字符串或"Unassign"，使用REMOVE操作删除字段
+            if not new_assignee or new_assignee.strip() == "" or new_assignee.strip().lower() == "unassign":
+                remove_fields.append('assignee')
+            else:
                 update_data['assignee'] = new_assignee
-            # 如果新值是空字符串，需要特殊处理：使用 REMOVE 操作删除字段
-            # 但 DynamoDB update_item 不支持直接删除 GSI 键，所以这里先不处理空字符串的情况
-            # 实际应用中，可以设置一个特殊值如 "UNASSIGNED" 而不是空字符串
         
         if "companyName" in request_data:
             update_data['company_name'] = request_data["companyName"]
@@ -739,11 +741,12 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         if "tags" in request_data:
             update_data['tags'] = request_data["tags"]
         
-        if not update_data:
+        # 检查是否有需要更新的字段或需要删除的字段
+        if not update_data and not remove_fields:
             raise HTTPException(status_code=400, detail="No fields to update")
         
         # 执行更新
-        if not db_client.update_request(request_id, update_data):
+        if not db_client.update_request(request_id, update_data, remove_fields=remove_fields):
             raise HTTPException(status_code=500, detail="Failed to update request")
         
         # 记录status变化
@@ -762,7 +765,11 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         # 记录assignee变化
         if "assignee" in request_data:
             new_assignee_raw = request_data.get("assignee", "")
-            new_assignee = new_assignee_raw.strip() if new_assignee_raw and isinstance(new_assignee_raw, str) else (new_assignee_raw or "")
+            # 处理Unassign的情况
+            if not new_assignee_raw or new_assignee_raw.strip() == "" or new_assignee_raw.strip().lower() == "unassign":
+                new_assignee = ""
+            else:
+                new_assignee = new_assignee_raw.strip() if isinstance(new_assignee_raw, str) else (new_assignee_raw or "")
             old_assignee_value = old_assignee.strip() if old_assignee and isinstance(old_assignee, str) else (old_assignee or "")
             
             print(f"📝 Assignee change check - Old: '{old_assignee_value}', New: '{new_assignee}'")

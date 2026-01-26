@@ -35,10 +35,22 @@ import { useState, useEffect } from 'react'
 const RequestDetails = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user, logout } = useAuthStore()
   const { toasts, showError, showSuccess, removeToast } = useToast()
   const [activeSection, setActiveSection] = useState('overview')
   const [users, setUsers] = useState<any[]>([])
   const [isExporting, setIsExporting] = useState(false)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+
+  const handleLogout = () => {
+    setShowLogoutConfirm(true)
+  }
+
+  const confirmLogout = () => {
+    logout()
+    navigate('/login')
+    setShowLogoutConfirm(false)
+  }
 
   const { data: request, isLoading, error } = useQuery<Request>(
     ['request', id],
@@ -1301,38 +1313,140 @@ const RequestDetails = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <button
-              onClick={() => window.history.back()}
-              className="mr-4 p-2 text-gray-400 hover:text-gray-600"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Request #{request.id}
-              </h1>
-              <p className="mt-2 text-gray-600">
-                {request.companyName || 'Unnamed Company'}
-              </p>
+    <div style={{
+      minHeight: '100vh',
+      background: '#f9fafb',
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: '#1f2937',
+      lineHeight: 1.6
+    }}>
+      {/* Fixed Header */}
+      <div style={{
+        background: '#ffffff',
+        borderBottom: '1px solid #e5e7eb',
+        padding: '16px 24px',
+        height: '71px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              background: '#4c1d95',
+              borderRadius: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)'
+            }}>
+              <svg width="20" height="20" fill="#ffffff" viewBox="0 0 24 24">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: '#4c1d95',
+              fontFamily: 'Inter, sans-serif'
+            }}>
+              RAK
             </div>
           </div>
-          <div className="flex items-center space-x-4">
+          <div style={{
+            fontSize: '20px',
+            fontWeight: '600',
+            color: '#1f2937',
+            fontFamily: 'Inter, sans-serif'
+          }}>
+            WisGateOS2 Pre-configuration Database
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              background: '#4c1d95',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}>
+              {(user?.name && user.name.trim()) 
+                ? user.name.charAt(0).toUpperCase() 
+                : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')}
+            </div>
+            <span style={{ fontSize: '14px', color: '#6b7280' }}>
+              {(user?.name && user.name.trim()) 
+                ? user.name 
+                : (user?.email ? user.email.split('@')[0] : 'User')}
+            </span>
             <button
-              onClick={handleExport}
-              disabled={isExporting}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleLogout}
+              style={{
+                padding: '6px 12px',
+                background: '#ef4444',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '0.375rem',
+                fontSize: '12px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
             >
-              <FileDown className="h-4 w-4 mr-2" />
-              {isExporting ? 'Exporting...' : 'Export'}
+              Logout
             </button>
           </div>
         </div>
       </div>
+
+      {/* Main Content */}
+      <div style={{ padding: '24px', marginTop: '64px' }}>
+        <div className="max-w-7xl mx-auto">
+          {/* Page Header */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <button
+                  onClick={() => window.history.back()}
+                  className="mr-4 p-2 text-gray-400 hover:text-gray-600"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900">
+                    Request #{request.id}
+                  </h1>
+                  <p className="mt-2 text-gray-600">
+                    {request.companyName || 'Unnamed Company'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-4">
+                <button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileDown className="h-4 w-4 mr-2" />
+                  {isExporting ? 'Exporting...' : 'Export'}
+                </button>
+              </div>
+            </div>
+          </div>
 
       {/* Workflow Progress Indicator */}
       <div className="mb-8 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -2816,8 +2930,71 @@ const RequestDetails = () => {
         </div>
       </div>
 
-      {/* Toast Container */}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+          {/* Toast Container */}
+          <ToastContainer toasts={toasts} onRemove={removeToast} />
+        </div>
+      </div>
+
+      {/* Logout Confirmation Dialog */}
+      {showLogoutConfirm && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '0.5rem',
+            padding: '24px',
+            maxWidth: '400px',
+            width: '90%',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+          }}>
+            <h3 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
+              Confirm Logout
+            </h3>
+            <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>
+              Are you sure you want to logout?
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                style={{
+                  padding: '10px 20px',
+                  background: '#f3f4f6',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '0.375rem',
+                  fontSize: '14px',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmLogout}
+                style={{
+                  padding: '10px 20px',
+                  background: '#ef4444',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  fontSize: '14px',
+                  cursor: 'pointer'
+                }}
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

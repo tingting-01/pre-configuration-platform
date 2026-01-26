@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { requestAPI, templateAPI } from '../services/api'
+import { requestAPI, templateAPI, getApiBaseUrl } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { useQuery } from 'react-query'
 import { X, Edit2, Plus } from 'lucide-react'
@@ -939,7 +939,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -983,7 +983,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -1027,7 +1027,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -1071,7 +1071,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -1115,7 +1115,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -1160,7 +1160,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -1204,7 +1204,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -1248,7 +1248,7 @@ const ConfigurationComplete = () => {
         const formData = new FormData();
         formData.append('file', file);
         
-        const response = await fetch('http://localhost:8000/api/files/upload', {
+        const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${useAuthStore.getState().token}`
@@ -6203,11 +6203,7 @@ const ConfigurationComplete = () => {
                                 // @ts-ignore
                                 return import.meta.env.VITE_API_URL
                               }
-                              const hostname = window.location.hostname
-                              if (hostname === 'localhost' || hostname === '127.0.0.1') {
-                                return 'http://localhost:8000'
-                              }
-                              return `http://${hostname}:8000`
+                              return getApiBaseUrl()
                             }
                             
                             // 上传文件到服务器
@@ -6442,7 +6438,7 @@ const ConfigurationComplete = () => {
                               const formData = new FormData();
                               formData.append('file', file);
                               
-                              const response = await fetch('http://localhost:8000/api/files/upload', {
+                              const response = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
                                 method: 'POST',
                                 headers: {
                                   'Authorization': `Bearer ${useAuthStore.getState().token}`

@@ -2,7 +2,7 @@ import axios from 'axios'
 import { useAuthStore } from '../stores/authStore'
 
 // 动态获取API地址，支持局域网访问
-const getApiBaseUrl = () => {
+export const getApiBaseUrl = () => {
   // 如果设置了环境变量，使用环境变量
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL

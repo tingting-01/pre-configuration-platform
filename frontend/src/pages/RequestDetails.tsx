@@ -283,8 +283,112 @@ const RequestDetails = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+      <div style={{
+        minHeight: '100vh',
+        background: '#f9fafb',
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        color: '#1f2937',
+        lineHeight: 1.6
+      }}>
+        {/* Fixed Header */}
+        <div style={{
+          background: '#ffffff',
+          borderBottom: '1px solid #e5e7eb',
+          padding: '16px 24px',
+          height: '71px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                background: '#4c1d95',
+                borderRadius: '0.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)'
+              }}>
+                <svg width="20" height="20" fill="#ffffff" viewBox="0 0 24 24">
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+              </div>
+              <div style={{
+                fontSize: '18px',
+                fontWeight: '600',
+                color: '#4c1d95',
+                fontFamily: 'Inter, sans-serif'
+              }}>
+                RAK
+              </div>
+            </div>
+            <div style={{
+              fontSize: '20px',
+              fontWeight: '600',
+              color: '#1f2937',
+              fontFamily: 'Inter, sans-serif'
+            }}>
+              WisGateOS2 Pre-configuration Database
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{
+                width: '32px',
+                height: '32px',
+                background: '#4c1d95',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#ffffff',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}>
+                {(user?.name && user.name.trim()) 
+                  ? user.name.charAt(0).toUpperCase() 
+                  : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')}
+              </div>
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>
+                {(user?.name && user.name.trim()) 
+                  ? user.name 
+                  : (user?.email ? user.email.split('@')[0] : 'User')}
+              </span>
+              <button
+                onClick={handleLogout}
+                style={{
+                  padding: '6px 12px',
+                  background: '#ef4444',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Loading Content */}
+        <div style={{ padding: '24px', marginTop: '80px' }}>
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -295,26 +399,132 @@ const RequestDetails = () => {
                             (error as any)?.message?.includes('permission') ||
                             (error as any)?.message?.includes('403')
     
+    // 共享的 Header 组件
+    const ErrorHeader = () => (
+      <div style={{
+        background: '#ffffff',
+        borderBottom: '1px solid #e5e7eb',
+        padding: '16px 24px',
+        height: '71px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)',
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 1000
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              background: '#4c1d95',
+              borderRadius: '0.5rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)'
+            }}>
+              <svg width="20" height="20" fill="#ffffff" viewBox="0 0 24 24">
+                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: '600',
+              color: '#4c1d95',
+              fontFamily: 'Inter, sans-serif'
+            }}>
+              RAK
+            </div>
+          </div>
+          <div style={{
+            fontSize: '20px',
+            fontWeight: '600',
+            color: '#1f2937',
+            fontFamily: 'Inter, sans-serif'
+          }}>
+            WisGateOS2 Pre-configuration Database
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              background: '#4c1d95',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ffffff',
+              fontSize: '14px',
+              fontWeight: '500'
+            }}>
+              {(user?.name && user.name.trim()) 
+                ? user.name.charAt(0).toUpperCase() 
+                : (user?.email ? user.email.charAt(0).toUpperCase() : 'U')}
+            </div>
+            <span style={{ fontSize: '14px', color: '#6b7280' }}>
+              {(user?.name && user.name.trim()) 
+                ? user.name 
+                : (user?.email ? user.email.split('@')[0] : 'User')}
+            </span>
+            <button
+              onClick={handleLogout}
+              style={{
+                padding: '6px 12px',
+                background: '#ef4444',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '0.375rem',
+                fontSize: '12px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+
     if (isPermissionError) {
       return (
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="rounded-md bg-yellow-50 border border-yellow-200 p-6">
-            <div className="flex items-start">
-              <Lock className="h-6 w-6 text-yellow-600 mr-3 mt-0.5" />
-              <div className="flex-1">
-                <h3 className="text-lg font-medium text-yellow-800 mb-2">
-                  Access Denied
-                </h3>
-                <p className="text-sm text-yellow-700 mb-4">
-                  You don't have permission to access this request. Only RAK Wireless employees can view all requests, and you can only view and edit your own requests.
-                </p>
-                <button
-                  onClick={() => navigate('/dashboard')}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-yellow-800 bg-yellow-100 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Dashboard
-                </button>
+        <div style={{
+          minHeight: '100vh',
+          background: '#f9fafb',
+          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          color: '#1f2937',
+          lineHeight: 1.6
+        }}>
+          <ErrorHeader />
+          <div style={{ padding: '24px', marginTop: '80px' }}>
+            <div className="max-w-7xl mx-auto px-4 py-8">
+              <div className="rounded-md bg-yellow-50 border border-yellow-200 p-6">
+                <div className="flex items-start">
+                  <Lock className="h-6 w-6 text-yellow-600 mr-3 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="text-lg font-medium text-yellow-800 mb-2">
+                      Access Denied
+                    </h3>
+                    <p className="text-sm text-yellow-700 mb-4">
+                      You don't have permission to access this request. Only RAK Wireless employees can view all requests, and you can only view and edit your own requests.
+                    </p>
+                    <button
+                      onClick={() => navigate('/dashboard')}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-yellow-800 bg-yellow-100 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+                    >
+                      <ArrowLeft className="h-4 w-4 mr-2" />
+                      Back to Dashboard
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -323,24 +533,35 @@ const RequestDetails = () => {
     }
     
     return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="rounded-md bg-red-50 border border-red-200 p-6">
-          <div className="flex items-start">
-            <AlertCircle className="h-6 w-6 text-red-600 mr-3 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="text-lg font-medium text-red-800 mb-2">
-                Failed to Load Request
-              </h3>
-              <p className="text-sm text-red-700 mb-4">
-                Failed to load request details. Please try again.
-              </p>
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-red-800 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-              >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
-              </button>
+      <div style={{
+        minHeight: '100vh',
+        background: '#f9fafb',
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        color: '#1f2937',
+        lineHeight: 1.6
+      }}>
+        <ErrorHeader />
+        <div style={{ padding: '24px', marginTop: '80px' }}>
+          <div className="max-w-7xl mx-auto px-4 py-8">
+            <div className="rounded-md bg-red-50 border border-red-200 p-6">
+              <div className="flex items-start">
+                <AlertCircle className="h-6 w-6 text-red-600 mr-3 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-lg font-medium text-red-800 mb-2">
+                    Failed to Load Request
+                  </h3>
+                  <p className="text-sm text-red-700 mb-4">
+                    Failed to load request details. Please try again.
+                  </p>
+                  <button
+                    onClick={() => navigate('/dashboard')}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-red-800 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Dashboard
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

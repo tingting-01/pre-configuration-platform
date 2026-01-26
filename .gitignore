@@ -15,6 +15,7 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+AWS_CREDENTIALS_INFO.md
 
 # IDE
 .vscode/

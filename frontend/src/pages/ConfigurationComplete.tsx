@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { requestAPI, templateAPI, getApiBaseUrl } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
-import { useQuery } from 'react-query'
+import { useQuery, useQueryClient } from 'react-query'
 import { X, Edit2, Plus } from 'lucide-react'
 import TemplateSelector from '../components/TemplateSelector'
 import ToastContainer, { ToastItem } from '../components/ToastContainer'
@@ -10,6 +10,7 @@ import { applyTemplateToForm, createTemplateFromConfig } from '../utils/template
 
 const ConfigurationComplete = () => {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   const editRequestId = searchParams.get('edit')
   const templateId = searchParams.get('template')
@@ -1702,6 +1703,10 @@ const ConfigurationComplete = () => {
           configData: configData,
           tags: tags
         })
+        // 使请求列表缓存失效，并立即触发刷新
+        queryClient.invalidateQueries('requests', { refetchActive: true })
+        // 同时使该请求的详情缓存失效
+        queryClient.invalidateQueries(['request', editRequestId])
         setSubmitProgress('')
         showSuccess('Configuration updated successfully!')
         setTimeout(() => {
@@ -1716,6 +1721,8 @@ const ConfigurationComplete = () => {
           originalConfig: {},
           tags: tags
         })
+        // 使请求列表缓存失效，并立即触发刷新
+        queryClient.invalidateQueries('requests', { refetchActive: true })
         setSubmitProgress('')
         showSuccess('Configuration submitted successfully!')
         setTimeout(() => {

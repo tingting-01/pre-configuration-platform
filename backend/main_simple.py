@@ -694,8 +694,12 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         print(f"✅ Request found: Creator User ID={request_user_id}")
         print(f"Current user ID: {current_user_id}, Role: {user_role}")
         
-        # 权限检查：只有创建者或 rakwireless/admin 用户可以编辑请求
-        if not can_view_all(user_role) and not is_creator:
+        # 权限检查：只有创建者或管理员可以编辑请求
+        # 说明：
+        # - 普通用户：只能编辑自己创建的请求
+        # - RAK Wireless 员工（非 admin）：可以查看所有请求，但不能编辑他人请求
+        # - Admin：可以编辑所有请求
+        if not is_admin(user_role) and not is_creator:
             print(f"❌ Permission denied: User {current_user_id} tried to edit request {request_id} created by user {request_user_id}")
             raise HTTPException(status_code=403, detail="You can only edit your own requests")
         

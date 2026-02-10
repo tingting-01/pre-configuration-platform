@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from 'react-query'
 import { useAuthStore } from '../stores/authStore'
 import { useDashboardStore } from '../stores/dashboardStore'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { requestAPI } from '../services/api'
 import AssignmentNotification from '../components/AssignmentNotification'
 import AdvancedSearch, { AdvancedSearchConfig } from '../components/AdvancedSearch'
@@ -61,14 +61,14 @@ const DashboardOriginal = () => {
   )
 
   // 使用 React Query 获取请求列表，启用缓存
-  const { data: requests = [], isLoading: loading } = useQuery(
+  const { data: requests = [], isLoading: loading, refetch } = useQuery(
     'requests',
     () => requestAPI.getRequests(),
     {
       staleTime: 5 * 60 * 1000, // 数据在5分钟内被认为是新鲜的，不会重新请求
       cacheTime: 10 * 60 * 1000, // 缓存保留10分钟
       refetchOnWindowFocus: false, // 窗口获得焦点时不自动刷新
-      refetchOnMount: false, // 组件挂载时如果缓存数据存在且未过期，不重新请求
+      refetchOnMount: true, // 组件挂载时如果缓存数据已失效，会重新请求
       retry: 1,
       onError: (error) => {
         console.error('Dashboard: Failed to load requests:', error)
@@ -76,6 +76,17 @@ const DashboardOriginal = () => {
       }
     }
   )
+
+  // 当从其他页面返回时，直接刷新数据
+  const prevPathnameRef = useRef(location.pathname)
+  useEffect(() => {
+    // 当路由变化到 dashboard 时（从其他页面返回），直接刷新数据
+    if (location.pathname === '/dashboard' && prevPathnameRef.current !== '/dashboard') {
+      console.log('🔄 Dashboard: Route changed to dashboard, refetching requests...')
+      refetch()
+    }
+    prevPathnameRef.current = location.pathname
+  }, [location.pathname, refetch])
 
   // 切换筛选模式、搜索或标签筛选时，重置到第一页
   const prevFilterRef = useRef({ 
@@ -450,37 +461,85 @@ const DashboardOriginal = () => {
       
       // 检查删除结果
       const failedDeletes = result.results?.filter((r: any) => !r.success) || []
+      const successCount = requestIds.length - failedDeletes.length
+      
       if (failedDeletes.length > 0) {
         console.warn('Some deletions failed:', failedDeletes)
-        const errorMessages = failedDeletes.map((f: any) => f.error || 'Unknown error').join(', ')
-        setLoadingMessage(`Deleted ${requestIds.length - failedDeletes.length} request(s), ${failedDeletes.length} failed: ${errorMessages}`)
+        
+        // 检查是否有403权限错误
+        const permissionErrors = failedDeletes.filter((f: any) => 
+          f.error?.includes('403') || 
+          f.error?.includes('permission') || 
+          f.error?.includes('Permission denied') ||
+          f.error?.includes('You can only delete your own requests')
+        )
+        
+        if (permissionErrors.length > 0) {
+          // 显示权限错误提示
+          const errorMessage = permissionErrors.length === failedDeletes.length
+            ? `You don't have permission to delete ${failedDeletes.length} request(s). You can only delete your own requests.`
+            : `You don't have permission to delete ${permissionErrors.length} request(s). ${successCount > 0 ? `Successfully deleted ${successCount} request(s).` : ''}`
+          showError(errorMessage)
+        } else {
+          // 其他错误
+          const errorMessages = failedDeletes.map((f: any) => f.error || 'Unknown error').join(', ')
+          showError(`Failed to delete ${failedDeletes.length} request(s): ${errorMessages}`)
+        }
+        
+        // 只从列表中移除成功删除的请求
+        const successIds = result.results
+          ?.filter((r: any) => r.success)
+          ?.map((r: any) => r.id) || []
+        
+        if (successIds.length > 0) {
+          queryClient.setQueryData('requests', (oldData: any[] = []) => 
+            oldData.filter((r: any) => !successIds.includes(r.id))
+          )
+          queryClient.invalidateQueries('requests')
+        }
+        
+        // 更新选中状态，移除成功删除的项
+        const failedIds = failedDeletes.map((f: any) => f.id)
+        setSelectedRequests(new Set(failedIds))
       } else {
+        // 全部成功
         setLoadingMessage(`Successfully deleted ${requestIds.length} request(s)!`)
+        
+        // 立即从列表中移除已删除的请求（乐观更新，优化用户体验）
+        queryClient.setQueryData('requests', (oldData: any[] = []) => 
+          oldData.filter((r: any) => !requestIds.includes(r.id))
+        )
+        
+        // 清除选中状态
+        setSelectedRequests(new Set())
+        setShowDeleteConfirm(false)
+        
+        // 使缓存失效，触发后台重新获取数据以确保同步
+        queryClient.invalidateQueries('requests')
+        
+        // 3秒后清除成功消息
+        setTimeout(() => {
+          setLoadingMessage('')
+        }, 3000)
       }
-      
-      // 立即从列表中移除已删除的请求（乐观更新，优化用户体验）
-      queryClient.setQueryData('requests', (oldData: any[] = []) => 
-        oldData.filter((r: any) => !requestIds.includes(r.id))
-      )
-      
-      // 清除选中状态
-      setSelectedRequests(new Set())
-      setShowDeleteConfirm(false)
-      
-      // 使缓存失效，触发后台重新获取数据以确保同步
-      queryClient.invalidateQueries('requests')
-      
-      // 3秒后清除成功消息
-      setTimeout(() => {
-        setLoadingMessage('')
-      }, 3000)
     } catch (error: any) {
       console.error('Failed to delete requests:', error)
       const errorMessage = error.response?.data?.detail || error.message || 'Failed to delete requests'
-      setLoadingMessage(`Error: ${errorMessage}`)
-      setTimeout(() => {
-        setLoadingMessage('')
-      }, 5000)
+      
+      // 检查是否是403权限错误
+      const isPermissionError = error.response?.status === 403 || 
+                                errorMessage.includes('403') ||
+                                errorMessage.includes('permission') ||
+                                errorMessage.includes('Permission denied') ||
+                                errorMessage.includes('You can only delete your own requests')
+      
+      if (isPermissionError) {
+        showError('You don\'t have permission to delete these requests. You can only delete your own requests.')
+      } else {
+        showError(`Failed to delete requests: ${errorMessage}`)
+      }
+      
+      setLoadingMessage('')
     } finally {
       setDeleting(false)
     }
@@ -2137,9 +2196,7 @@ const DashboardOriginal = () => {
                             View
                           </button>
                           {(request.creatorEmail === user?.email || 
-                            user?.role === 'admin' || 
-                            user?.role === 'rakwireless' ||
-                            (user?.email && user.email.toLowerCase().endsWith('@rakwireless.com'))) ? (
+                            user?.role === 'admin') ? (
                             <button
                               onClick={() => navigate(`/configuration?edit=${request.id}`)}
                               style={{

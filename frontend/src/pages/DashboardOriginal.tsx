@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useQuery, useQueryClient } from 'react-query'
 import { useAuthStore } from '../stores/authStore'
+import { useDashboardStore } from '../stores/dashboardStore'
 import { useNavigate } from 'react-router-dom'
 import { requestAPI } from '../services/api'
 import AssignmentNotification from '../components/AssignmentNotification'
@@ -10,25 +12,26 @@ import { useToast } from '../hooks/useToast'
 import ToastContainer from '../components/ToastContainer'
 
 const DashboardOriginal = () => {
-  const [requests, setRequests] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState<Set<string>>(new Set())
   const [filterMode, setFilterMode] = useState<'all' | 'new'>('all')
   const [statusUpdateError, setStatusUpdateError] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
   const [loadingMessage, setLoadingMessage] = useState('')
   const [isSearchExpanded, setIsSearchExpanded] = useState(false)
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
-  const [advancedSearchConfig, setAdvancedSearchConfig] = useState<AdvancedSearchConfig | null>(null)
   const [savedSearches, setSavedSearches] = useState<Array<{ name: string; config: AdvancedSearchConfig }>>([])
-  // 分页状态
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage] = useState(10) // 默认每页10条
+  // 分页和搜索状态 - 使用 Zustand store
+  const { currentPage, itemsPerPage, searchQuery, advancedSearchConfig, setCurrentPage, setItemsPerPage, setSearchQuery, setAdvancedSearchConfig, resetPagination } = useDashboardStore()
+  
+  // 调试：打印分页和搜索状态变化
+  useEffect(() => {
+    console.log('📊 Dashboard: Current page =', currentPage, ', Items per page =', itemsPerPage, ', Search query =', searchQuery, ', Advanced search =', advancedSearchConfig)
+  }, [currentPage, itemsPerPage, searchQuery, advancedSearchConfig])
+  
   // 分配功能状态
-  const [users, setUsers] = useState<any[]>([])
   const [assigningRequest, setAssigningRequest] = useState<string | null>(null)
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState<string | null>(null)
   // WisDM确认对话框状态
@@ -40,11 +43,67 @@ const DashboardOriginal = () => {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
   const { toasts, showError, removeToast } = useToast()
+  // 表格容器的引用，用于滚动到表格顶部
+  const tableContainerRef = useRef<HTMLDivElement>(null)
+
+  // 使用 React Query 获取用户列表，启用缓存（用户列表变化频率低，可以缓存较长时间）
+  const { data: users = [] } = useQuery(
+    ['users', user?.email],
+    () => requestAPI.getUsers(),
+    {
+      enabled: !!user?.email?.toLowerCase().endsWith('@rakwireless.com'), // 仅RAK Wireless用户需要加载
+      staleTime: 10 * 60 * 1000, // 数据在10分钟内被认为是新鲜的（用户列表变化频率低）
+      cacheTime: 30 * 60 * 1000, // 缓存保留30分钟
+      refetchOnWindowFocus: false, // 窗口获得焦点时不自动刷新
+      refetchOnMount: false, // 组件挂载时如果缓存数据存在且未过期，不重新请求
+      retry: 1,
+    }
+  )
+
+  // 使用 React Query 获取请求列表，启用缓存
+  const { data: requests = [], isLoading: loading } = useQuery(
+    'requests',
+    () => requestAPI.getRequests(),
+    {
+      staleTime: 5 * 60 * 1000, // 数据在5分钟内被认为是新鲜的，不会重新请求
+      cacheTime: 10 * 60 * 1000, // 缓存保留10分钟
+      refetchOnWindowFocus: false, // 窗口获得焦点时不自动刷新
+      refetchOnMount: false, // 组件挂载时如果缓存数据存在且未过期，不重新请求
+      retry: 1,
+      onError: (error) => {
+        console.error('Dashboard: Failed to load requests:', error)
+        setLoadingMessage('Failed to load requests')
+      }
+    }
+  )
 
   // 切换筛选模式、搜索或标签筛选时，重置到第一页
+  const prevFilterRef = useRef({ 
+    filterMode, 
+    searchQuery, 
+    selectedTagsSize: selectedTags.size, 
+    advancedSearchConfig 
+  })
   useEffect(() => {
-    setCurrentPage(1)
-  }, [filterMode, searchQuery, selectedTags, advancedSearchConfig])
+    const prev = prevFilterRef.current
+    // 只有在筛选条件真正改变时才重置（不是初始化）
+    const hasChanged = 
+      prev.filterMode !== filterMode ||
+      prev.searchQuery !== searchQuery ||
+      prev.selectedTagsSize !== selectedTags.size ||
+      prev.advancedSearchConfig !== advancedSearchConfig
+    
+    if (hasChanged) {
+      console.log('🔄 Filter changed, resetting pagination')
+      resetPagination()
+    }
+    prevFilterRef.current = { 
+      filterMode, 
+      searchQuery, 
+      selectedTagsSize: selectedTags.size, 
+      advancedSearchConfig 
+    }
+  }, [filterMode, searchQuery, selectedTags, advancedSearchConfig, resetPagination])
 
   // 加载保存的搜索条件
   useEffect(() => {
@@ -206,8 +265,12 @@ const DashboardOriginal = () => {
   // 分页处理函数
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
-    // 滚动到顶部
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    // 滚动到表格顶部（Request List标题位置）
+    if (tableContainerRef.current) {
+      const elementTop = tableContainerRef.current.getBoundingClientRect().top + window.pageYOffset
+      const offset = 80 // 预留顶部导航栏等固定元素的空间
+      window.scrollTo({ top: elementTop - offset, behavior: 'smooth' })
+    }
   }
 
   const handlePreviousPage = () => {
@@ -219,6 +282,17 @@ const DashboardOriginal = () => {
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       handlePageChange(currentPage + 1)
+    }
+  }
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage)
+    resetPagination()
+    // 滚动到表格顶部（Request List标题位置）
+    if (tableContainerRef.current) {
+      const elementTop = tableContainerRef.current.getBoundingClientRect().top + window.pageYOffset
+      const offset = 80 // 预留顶部导航栏等固定元素的空间
+      window.scrollTo({ top: elementTop - offset, behavior: 'smooth' })
     }
   }
 
@@ -242,12 +316,8 @@ const DashboardOriginal = () => {
   const statistics = getStatistics()
 
   useEffect(() => {
-    loadRequests()
-    // 如果是RAK Wireless用户，加载用户列表
-    if (user?.email?.toLowerCase().endsWith('@rakwireless.com')) {
-      loadUsers()
-    } else {
-      // 非RAK Wireless用户，确保筛选模式始终为'all'
+    // 非RAK Wireless用户，确保筛选模式始终为'all'
+    if (!user?.email?.toLowerCase().endsWith('@rakwireless.com')) {
       setFilterMode('all')
     }
   }, [user])
@@ -267,32 +337,6 @@ const DashboardOriginal = () => {
       }
     }
   }, [assigneeDropdownOpen])
-
-  const loadUsers = async () => {
-    try {
-      const data = await requestAPI.getUsers()
-      setUsers(data)
-    } catch (error) {
-      console.error('Failed to load users:', error)
-    }
-  }
-
-  const loadRequests = async () => {
-    try {
-      setLoading(true)
-      setLoadingMessage('Loading requests...')
-      console.log('Dashboard: Loading requests...')
-      const data = await requestAPI.getRequests()
-      console.log('Dashboard: Requests loaded:', data)
-      setRequests(data)
-      setLoadingMessage('')
-    } catch (error) {
-      console.error('Dashboard: Failed to load requests:', error)
-      setLoadingMessage('Failed to load requests')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
@@ -414,17 +458,17 @@ const DashboardOriginal = () => {
         setLoadingMessage(`Successfully deleted ${requestIds.length} request(s)!`)
       }
       
-      // 立即从列表中移除已删除的请求（优化用户体验）
-      setRequests((prevRequests: any[]) => 
-        prevRequests.filter((r: any) => !requestIds.includes(r.id))
+      // 立即从列表中移除已删除的请求（乐观更新，优化用户体验）
+      queryClient.setQueryData('requests', (oldData: any[] = []) => 
+        oldData.filter((r: any) => !requestIds.includes(r.id))
       )
       
       // 清除选中状态
       setSelectedRequests(new Set())
       setShowDeleteConfirm(false)
       
-      // 重新加载请求列表以确保数据同步
-      await loadRequests()
+      // 使缓存失效，触发后台重新获取数据以确保同步
+      queryClient.invalidateQueries('requests')
       
       // 3秒后清除成功消息
       setTimeout(() => {
@@ -454,8 +498,8 @@ const DashboardOriginal = () => {
     try {
       await requestAPI.updateRequest(requestId, { assignee: assigneeEmail })
       
-      // 重新加载所有请求，确保所有用户（包括非RAK Wireless用户）都能看到最新的assignee信息
-      await loadRequests()
+      // 使缓存失效，触发重新获取数据
+      queryClient.invalidateQueries('requests')
       
       setLoadingMessage('Request assigned successfully!')
       setAssigneeDropdownOpen(null)
@@ -491,12 +535,14 @@ const DashboardOriginal = () => {
       if (currentRequest) {
         // 检查是否启用了WisDM，如果未启用，不允许切换
         if (!isWisDMEnabledForRequest(currentRequest)) {
-          // 恢复select的值到原来的状态
-          setRequests(prev => prev.map((request: any) => 
-            request.id === requestId 
-              ? { ...request, status: currentRequest.status }
-              : request
-          ))
+          // 恢复select的值到原来的状态（更新缓存）
+          queryClient.setQueryData('requests', (oldData: any[] = []) => 
+            oldData.map((request: any) => 
+              request.id === requestId 
+                ? { ...request, status: currentRequest.status }
+                : request
+            )
+          )
           setStatusUpdateError('Cannot switch to WisDM Provisioning: WisDM Provisioning is not enabled for this request.')
           setTimeout(() => {
             setStatusUpdateError(null)
@@ -505,11 +551,13 @@ const DashboardOriginal = () => {
         }
         
         // 先恢复select的值到原来的状态（因为select已经改变了）
-        setRequests(prev => prev.map((request: any) => 
-          request.id === requestId 
-            ? { ...request, status: currentRequest.status }
-            : request
-        ))
+        queryClient.setQueryData('requests', (oldData: any[] = []) => 
+          oldData.map((request: any) => 
+            request.id === requestId 
+              ? { ...request, status: currentRequest.status }
+              : request
+          )
+        )
         
         setPendingStatusUpdate({ 
           requestId, 
@@ -535,12 +583,17 @@ const DashboardOriginal = () => {
       console.log(`Updating status for request ${requestId} to ${newStatus}`)
       await requestAPI.updateRequest(requestId, { status: newStatus })
       
-      // 更新本地状态
-      setRequests(prev => prev.map((request: any) => 
-        request.id === requestId 
-          ? { ...request, status: newStatus }
-          : request
-      ))
+      // 乐观更新缓存（立即更新UI）
+      queryClient.setQueryData('requests', (oldData: any[] = []) => 
+        oldData.map((request: any) => 
+          request.id === requestId 
+            ? { ...request, status: newStatus }
+            : request
+        )
+      )
+      
+      // 使缓存失效，触发后台重新获取数据以确保同步
+      queryClient.invalidateQueries('requests')
       
       console.log(`Status updated successfully for request ${requestId}`)
       setLoadingMessage('Status updated successfully!')
@@ -579,12 +632,14 @@ const DashboardOriginal = () => {
   // 取消WisDM确认
   const cancelWisDM = () => {
     if (pendingStatusUpdate && pendingStatusUpdate.oldStatus) {
-      // 恢复请求的原始状态
-      setRequests(prev => prev.map((request: any) => 
-        request.id === pendingStatusUpdate.requestId 
-          ? { ...request, status: pendingStatusUpdate.oldStatus }
-          : request
-      ))
+      // 恢复请求的原始状态（更新缓存）
+      queryClient.setQueryData('requests', (oldData: any[] = []) => 
+        oldData.map((request: any) => 
+          request.id === pendingStatusUpdate.requestId 
+            ? { ...request, status: pendingStatusUpdate.oldStatus }
+            : request
+        )
+      )
     }
     setShowWisDMConfirm(false)
     setPendingStatusUpdate(null)
@@ -1180,13 +1235,15 @@ const DashboardOriginal = () => {
           boxShadow: '0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06)',
           border: '1px solid #e5e7eb'
         }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '24px',
-            position: 'relative'
-          }}>
+          <div 
+            ref={tableContainerRef}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '24px',
+              position: 'relative'
+            }}>
             <h2 style={{
               fontSize: '24px',
               fontWeight: '600',
@@ -1514,13 +1571,14 @@ const DashboardOriginal = () => {
               </button>
             </div>
           ) : (
-            <div style={{ 
-              overflowX: 'auto',
-              overflowY: 'visible',
-              width: '100%',
-              maxWidth: '100%',
-              WebkitOverflowScrolling: 'touch' // 移动端平滑滚动
-            }}>
+            <div 
+              style={{ 
+                overflowX: 'auto',
+                overflowY: 'visible',
+                width: '100%',
+                maxWidth: '100%',
+                WebkitOverflowScrolling: 'touch' // 移动端平滑滚动
+              }}>
               <table style={{
                 width: '100%',
                 minWidth: '1150px', // 最小宽度，确保所有列都有足够空间显示
@@ -1578,8 +1636,8 @@ const DashboardOriginal = () => {
                       fontWeight: '500',
                       color: '#374151',
                       background: '#f9fafb',
-                      width: 'auto',
-                      minWidth: '80px',
+                      width: '150px',
+                      maxWidth: '150px',
                       whiteSpace: 'nowrap',
                       fontSize: '12px',
                       lineHeight: '1.3'
@@ -1592,8 +1650,36 @@ const DashboardOriginal = () => {
                       fontWeight: '500',
                       color: '#374151',
                       background: '#f9fafb',
-                      width: 'auto',
-                      minWidth: '100px',
+                      width: '120px',
+                      maxWidth: '120px',
+                      whiteSpace: 'nowrap',
+                      fontSize: '12px',
+                      lineHeight: '1.3'
+                    }}>
+                      PID
+                    </th>
+                    <th style={{
+                      padding: '6px 10px',
+                      textAlign: 'left',
+                      fontWeight: '500',
+                      color: '#374151',
+                      background: '#f9fafb',
+                      width: '120px',
+                      maxWidth: '120px',
+                      whiteSpace: 'nowrap',
+                      fontSize: '12px',
+                      lineHeight: '1.3'
+                    }}>
+                      Barcode
+                    </th>
+                    <th style={{
+                      padding: '6px 10px',
+                      textAlign: 'left',
+                      fontWeight: '500',
+                      color: '#374151',
+                      background: '#f9fafb',
+                      width: '120px',
+                      maxWidth: '120px',
                       whiteSpace: 'nowrap',
                       fontSize: '12px',
                       lineHeight: '1.3'
@@ -1620,8 +1706,8 @@ const DashboardOriginal = () => {
                       fontWeight: '500',
                       color: '#374151',
                       background: '#f9fafb',
-                      width: 'auto',
-                      minWidth: '130px',
+                      width: '150px',
+                      maxWidth: '150px',
                       whiteSpace: 'nowrap',
                       fontSize: '12px',
                       lineHeight: '1.3'
@@ -1688,16 +1774,65 @@ const DashboardOriginal = () => {
                       <td style={{ padding: '4px 10px', color: '#1f2937', fontSize: '11px' }}>
                         {request.id}
                       </td>
-                      <td style={{ padding: '4px 10px', color: '#1f2937', fontSize: '11px' }}>
+                      <td 
+                        style={{ 
+                          padding: '4px 10px', 
+                          color: '#1f2937', 
+                          fontSize: '11px',
+                          maxWidth: '150px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={request.companyName || 'Unnamed'}
+                      >
                         {request.companyName || 'Unnamed'}
                       </td>
-                      <td style={{ padding: '4px 10px', color: '#1f2937', fontSize: '11px' }}>
+                      <td 
+                        style={{ 
+                          padding: '4px 10px', 
+                          color: '#1f2937', 
+                          fontSize: '11px',
+                          maxWidth: '120px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={request.configData?.general?.pid || '-'}
+                      >
+                        {request.configData?.general?.pid || '-'}
+                      </td>
+                      <td 
+                        style={{ 
+                          padding: '4px 10px', 
+                          color: '#1f2937', 
+                          fontSize: '11px',
+                          maxWidth: '120px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={request.configData?.general?.barcode || '-'}
+                      >
+                        {request.configData?.general?.barcode || '-'}
+                      </td>
+                      <td 
+                        style={{ 
+                          padding: '4px 10px', 
+                          color: '#1f2937', 
+                          fontSize: '11px',
+                          maxWidth: '120px',
+                          overflow: 'hidden'
+                        }}
+                        title={request.creatorEmail === user?.email ? 'You' : request.creatorEmail || 'Unknown'}
+                      >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <div style={{
                             width: '8px',
                             height: '8px',
                             borderRadius: '50%',
-                            background: request.creatorEmail === user?.email ? '#10b981' : '#6b7280'
+                            background: request.creatorEmail === user?.email ? '#10b981' : '#6b7280',
+                            flexShrink: 0
                           }}></div>
                           <span style={{
                             fontSize: '12px',
@@ -1706,7 +1841,11 @@ const DashboardOriginal = () => {
                             padding: '1px 4px',
                             borderRadius: '3px',
                             fontWeight: request.creatorEmail === user?.email ? '500' : '400',
-                            lineHeight: '1.3'
+                            lineHeight: '1.3',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0
                           }}>
                             {request.creatorEmail === user?.email ? 'You' : request.creatorEmail || 'Unknown'}
                           </span>
@@ -1754,7 +1893,21 @@ const DashboardOriginal = () => {
                           )
                         })()}
                       </td>
-                      <td style={{ padding: '4px 10px', color: '#1f2937', fontSize: '11px' }}>
+                      <td 
+                        style={{ 
+                          padding: '4px 10px', 
+                          color: '#1f2937', 
+                          fontSize: '11px',
+                          maxWidth: '150px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={new Date(request.submitTime).toLocaleString('en-US', {
+                          year: 'numeric', month: '2-digit', day: '2-digit',
+                          hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+                        }).replace(/(\d+)\/(\d+)\/(\d+),?\s*(\d+):(\d+):(\d+)/, '$3/$1/$2 $4:$5:$6')}
+                      >
                         {new Date(request.submitTime).toLocaleString('en-US', {
                           year: 'numeric', month: '2-digit', day: '2-digit',
                           hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
@@ -1983,7 +2136,10 @@ const DashboardOriginal = () => {
                           >
                             View
                           </button>
-                          {request.creatorEmail === user?.email ? (
+                          {(request.creatorEmail === user?.email || 
+                            user?.role === 'admin' || 
+                            user?.role === 'rakwireless' ||
+                            (user?.email && user.email.toLowerCase().endsWith('@rakwireless.com'))) ? (
                             <button
                               onClick={() => navigate(`/configuration?edit=${request.id}`)}
                               style={{
@@ -2041,18 +2197,49 @@ const DashboardOriginal = () => {
                   borderTop: '1px solid #e5e7eb',
                   marginTop: '16px'
                 }}>
-                  {/* 左侧：显示当前页信息 */}
+                  {/* 左侧：显示当前页信息 + 每页条数切换 */}
                   <div style={{
                     fontSize: '14px',
-                    color: '#6b7280'
+                    color: '#6b7280',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    flexWrap: 'wrap'
                   }}>
-                    Showing <span style={{ fontWeight: '600', color: '#1f2937' }}>
-                      {startIndex + 1}
-                    </span> - <span style={{ fontWeight: '600', color: '#1f2937' }}>
-                      {Math.min(endIndex, filteredRequests.length)}
-                    </span> of <span style={{ fontWeight: '600', color: '#1f2937' }}>
-                      {filteredRequests.length}
-                    </span> records
+                    <div>
+                      Showing <span style={{ fontWeight: '600', color: '#1f2937' }}>
+                        {startIndex + 1}
+                      </span> - <span style={{ fontWeight: '600', color: '#1f2937' }}>
+                        {Math.min(endIndex, filteredRequests.length)}
+                      </span> of <span style={{ fontWeight: '600', color: '#1f2937' }}>
+                        {filteredRequests.length}
+                      </span> records
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ whiteSpace: 'nowrap' }}>Rows per page</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+                        style={{
+                          padding: '6px 10px',
+                          background: '#ffffff',
+                          color: '#374151',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '0.375rem',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          outline: 'none'
+                        }}
+                      >
+                        {[10, 20, 50, 100].map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* 右侧：分页控件 - 只在多页时显示 */}

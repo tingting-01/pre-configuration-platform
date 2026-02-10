@@ -6183,7 +6183,7 @@ const ConfigurationComplete = () => {
                         + Select Files
                       </button>
                       <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                        Supports various file formats, unlimited quantity
+                        Supports various file formats, unlimited quantity. Max file size: 10MB
                       </span>
                     </div>
                     
@@ -6196,18 +6196,12 @@ const ConfigurationComplete = () => {
                         const files = Array.from(e.target.files || []);
                         if (files.length > 0) {
                           try {
-                            // 动态获取API地址
-                            const getApiBaseUrl = () => {
-                              // @ts-ignore - Vite environment variable
-                              if (import.meta.env?.VITE_API_URL) {
-                                // @ts-ignore
-                                return import.meta.env.VITE_API_URL
-                              }
-                              return getApiBaseUrl()
-                            }
-                            
                             // 上传文件到服务器
                             const uploadedFiles = [];
+                            const uploadedFileNames = [];
+                            const uploadedFileSizes = [];
+                            const failedFiles = [];
+                            
                             for (const file of files) {
                               const formDataObj = new FormData();
                               formDataObj.append('file', file);
@@ -6227,6 +6221,8 @@ const ConfigurationComplete = () => {
                                   name: file.name,
                                   size: file.size
                                 });
+                                uploadedFileNames.push(file.name);
+                                uploadedFileSizes.push(file.size);
                               } else {
                                 const errorText = await response.text();
                                 let errorMessage = 'Unknown error';
@@ -6236,25 +6232,39 @@ const ConfigurationComplete = () => {
                                 } catch {
                                   errorMessage = errorText || `HTTP ${response.status}: ${response.statusText}`;
                                 }
+                                failedFiles.push({ name: file.name, error: errorMessage });
                                 console.error('Failed to upload file:', file.name, errorMessage);
-                                showError(`Failed to upload file: ${file.name}. ${errorMessage}`);
                               }
                             }
                             
-                            // 更新状态
-                            const currentFiles = formData.extensionFiles || [];
-                            const currentNames = formData.extensionFileNames || [];
-                            const currentSizes = formData.extensionFileSizes || [];
+                            // 显示错误提示
+                            if (failedFiles.length > 0) {
+                              const errorMessages = failedFiles.map(f => `${f.name}: ${f.error}`).join('\n');
+                              showError(`Failed to upload ${failedFiles.length} file(s):\n${errorMessages}`);
+                            }
                             
-                            handleInputChange('extensionFiles', [...currentFiles, ...uploadedFiles]);
-                            handleInputChange('extensionFileNames', [...currentNames, ...files.map(f => f.name)]);
-                            handleInputChange('extensionFileSizes', [...currentSizes, ...files.map(f => f.size)]);
+                            // 只将成功上传的文件添加到状态中
+                            if (uploadedFiles.length > 0) {
+                              const currentFiles = formData.extensionFiles || [];
+                              const currentNames = formData.extensionFileNames || [];
+                              const currentSizes = formData.extensionFileSizes || [];
+                              
+                              handleInputChange('extensionFiles', [...currentFiles, ...uploadedFiles]);
+                              handleInputChange('extensionFileNames', [...currentNames, ...uploadedFileNames]);
+                              handleInputChange('extensionFileSizes', [...currentSizes, ...uploadedFileSizes]);
+                              
+                              if (uploadedFiles.length === files.length) {
+                                showSuccess(`Successfully uploaded ${uploadedFiles.length} file(s)`);
+                              }
+                            }
                             
                             // 清空input以便可以再次选择相同文件
                             e.target.value = '';
                           } catch (error) {
                             console.error('Error uploading files:', error);
-                            showError('Error uploading files');
+                            showError(`Error uploading files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                            // 清空input以便可以再次选择相同文件
+                            e.target.value = '';
                           }
                         }
                       }}
@@ -6367,13 +6377,21 @@ const ConfigurationComplete = () => {
                 background: '#ffffff',
                 border: '1px solid #e5e7eb',
                 borderRadius: '10px',
-                padding: '20px'
+                padding: '20px',
+                width: '100%',
+                boxSizing: 'border-box'
               }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '140px minmax(0, 1fr)', 
+                  gap: '16px',
+                  width: '100%',
+                  boxSizing: 'border-box'
+                }}>
                   <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
                     Requirements Description
                   </div>
-                  <div>
+                  <div style={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
                     <textarea
                       value={formData.requirements}
                       onChange={(e) => handleInputChange('requirements', e.target.value)}
@@ -6381,12 +6399,14 @@ const ConfigurationComplete = () => {
                       rows={4}
                       style={{
                         width: '100%',
+                        maxWidth: '100%',
                         padding: '12px',
                         border: '1px solid #d1d5db',
                         borderRadius: '6px',
                         fontSize: '14px',
                         outline: 'none',
-                        resize: 'vertical'
+                        resize: 'vertical',
+                        boxSizing: 'border-box'
                       }}
                     />
                   </div>
@@ -6394,8 +6414,8 @@ const ConfigurationComplete = () => {
                   <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
                     File Upload
                   </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                       <button
                         type="button"
                         onClick={() => document.getElementById('config-file-upload')?.click()}
@@ -6411,15 +6431,17 @@ const ConfigurationComplete = () => {
                           display: 'flex',
                           alignItems: 'center',
                           gap: '6px',
-                          transition: 'background-color 0.2s'
+                          transition: 'background-color 0.2s',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0
                         }}
                         onMouseEnter={(e) => e.currentTarget.style.background = '#6d28d9'}
                         onMouseLeave={(e) => e.currentTarget.style.background = '#7c3aed'}
                       >
                         + Select Files
                       </button>
-                      <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                        Supports various file formats, unlimited quantity
+                      <span style={{ fontSize: '14px', color: '#6b7280', lineHeight: '1.5' }}>
+                        Supports various file formats, unlimited quantity. Max file size: 10MB
                       </span>
                     </div>
                     
@@ -6434,6 +6456,10 @@ const ConfigurationComplete = () => {
                           try {
                             // 上传文件到服务器
                             const uploadedFiles = [];
+                            const uploadedFileNames = [];
+                            const uploadedFileSizes = [];
+                            const failedFiles = [];
+                            
                             for (const file of files) {
                               const formData = new FormData();
                               formData.append('file', file);
@@ -6453,21 +6479,50 @@ const ConfigurationComplete = () => {
                                   name: file.name,
                                   size: file.size
                                 });
+                                uploadedFileNames.push(file.name);
+                                uploadedFileSizes.push(file.size);
                               } else {
-                                console.error('Failed to upload file:', file.name);
+                                // 解析错误信息
+                                let errorMessage = `Failed to upload ${file.name}`;
+                                try {
+                                  const errorData = await response.json();
+                                  errorMessage = errorData.detail || errorMessage;
+                                } catch {
+                                  errorMessage = `Failed to upload ${file.name}: ${response.status} ${response.statusText}`;
+                                }
+                                failedFiles.push({ name: file.name, error: errorMessage });
+                                console.error('Failed to upload file:', file.name, errorMessage);
                               }
                             }
                             
-                            // 更新状态
-                            const currentFiles = formData.configFiles || [];
-                            const currentNames = formData.configFileNames || [];
-                            const currentSizes = formData.configFileSizes || [];
+                            // 显示错误提示
+                            if (failedFiles.length > 0) {
+                              const errorMessages = failedFiles.map(f => `${f.name}: ${f.error}`).join('\n');
+                              showError(`Failed to upload ${failedFiles.length} file(s):\n${errorMessages}`);
+                            }
                             
-                            handleInputChange('configFiles', [...currentFiles, ...uploadedFiles]);
-                            handleInputChange('configFileNames', [...currentNames, ...files.map(f => f.name)]);
-                            handleInputChange('configFileSizes', [...currentSizes, ...files.map(f => f.size)]);
+                            // 只将成功上传的文件添加到状态中
+                            if (uploadedFiles.length > 0) {
+                              const currentFiles = formData.configFiles || [];
+                              const currentNames = formData.configFileNames || [];
+                              const currentSizes = formData.configFileSizes || [];
+                              
+                              handleInputChange('configFiles', [...currentFiles, ...uploadedFiles]);
+                              handleInputChange('configFileNames', [...currentNames, ...uploadedFileNames]);
+                              handleInputChange('configFileSizes', [...currentSizes, ...uploadedFileSizes]);
+                              
+                              if (uploadedFiles.length === files.length) {
+                                showSuccess(`Successfully uploaded ${uploadedFiles.length} file(s)`);
+                              }
+                            }
+                            
+                            // 重置文件输入
+                            e.target.value = '';
                           } catch (error) {
                             console.error('Error uploading files:', error);
+                            showError(`Error uploading files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                            // 重置文件输入
+                            e.target.value = '';
                           }
                         }
                       }}

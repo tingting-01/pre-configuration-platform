@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { useQuery } from 'react-query'
 import { Bell } from 'lucide-react'
 import { requestAPI } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -34,7 +35,6 @@ const AssignmentNotification: React.FC<AssignmentNotificationProps> = ({
   const [unreadCount, setUnreadCount] = useState(assignedCount)
   const [hasBeenRead, setHasBeenRead] = useState(false)
   const [lastAssignedCount, setLastAssignedCount] = useState(assignedCount)
-  const [activities, setActivities] = useState<AssignmentActivity[]>([])
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { token, user } = useAuthStore()
 
@@ -100,6 +100,26 @@ const AssignmentNotification: React.FC<AssignmentNotificationProps> = ({
 
   const [clearedTimestamp, setClearedTimestamp] = useState<number | null>(loadClearedTimestamp())
 
+  // 使用 React Query 获取分配活动，启用缓存
+  const { data: activitiesData = [] } = useQuery(
+    ['assignments', user?.email],
+    () => requestAPI.getMyAssignments(),
+    {
+      enabled: !!token && !!user?.email,
+      staleTime: 1 * 60 * 1000, // 数据在1分钟内被认为是新鲜的
+      cacheTime: 5 * 60 * 1000, // 缓存保留5分钟
+      refetchOnWindowFocus: false, // 窗口获得焦点时不自动刷新
+      refetchOnMount: false, // 组件挂载时如果缓存数据存在且未过期，不重新请求
+      refetchInterval: 30000, // 每30秒自动刷新一次（后台刷新）
+      retry: 1,
+    }
+  )
+
+  // 根据 clearedTimestamp 过滤活动
+  const activities = clearedTimestamp
+    ? activitiesData.filter(activity => new Date(activity.createdAt).getTime() > clearedTimestamp)
+    : activitiesData
+
   // 初始化时从localStorage加载已读状态
   useEffect(() => {
     if (user?.email) {
@@ -111,27 +131,13 @@ const AssignmentNotification: React.FC<AssignmentNotificationProps> = ({
     }
   }, [user?.email])
 
-  // 加载assign/unassign活动记录
+  // 活动数据已通过 React Query 获取，这里只需要处理日志
   useEffect(() => {
-    const loadActivities = async () => {
-      if (!token) return
-      try {
-        const data = await requestAPI.getMyAssignments()
-        console.log('Loaded assignment activities:', data)
-        console.log('Unread activity IDs:', Array.from(readActivityIds))
-        const filteredData = clearedTimestamp
-          ? data.filter(activity => new Date(activity.createdAt).getTime() > clearedTimestamp)
-          : data
-        setActivities(filteredData)
-      } catch (error) {
-        console.error('Failed to load assignment activities:', error)
-      }
+    if (activities.length > 0) {
+      console.log('Loaded assignment activities:', activities)
+      console.log('Unread activity IDs:', Array.from(readActivityIds))
     }
-    loadActivities()
-    // 定期刷新活动记录
-    const interval = setInterval(loadActivities, 30000) // 每30秒刷新一次
-    return () => clearInterval(interval)
-  }, [token, clearedTimestamp])
+  }, [activities, readActivityIds])
 
   // 当assignedCount变化时，更新未读数量（新增的分配会增加未读数）
   useEffect(() => {

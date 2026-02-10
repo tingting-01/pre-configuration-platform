@@ -102,8 +102,9 @@ JWT_SECRET = "your-secret-key-change-in-production"
 JWT_ALGORITHM = "HS256"
 security = HTTPBearer()
 
-# 文件存储目录
-UPLOAD_DIR = "uploads"
+# 文件存储目录（使用绝对路径）
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 if not os.path.exists(UPLOAD_DIR):
     os.makedirs(UPLOAD_DIR)
 
@@ -351,13 +352,17 @@ async def login(user_data: UserLogin):
         # 如果name为空，使用邮箱的用户名部分（@之前的部分）作为默认显示名称
         display_name = name if name and name.strip() else email.split('@')[0] if email else "User"
         
+        # 获取用户角色（优先使用数据库值，否则基于邮箱判断）
+        user_role = get_user_role(email, user.get("role"))
+        
         return {
             "access_token": access_token,
             "token_type": "bearer",
             "user": {
                 "id": user_id,
                 "email": email,
-                "name": display_name
+                "name": display_name,
+                "role": user_role
             }
         }
     except HTTPException:
@@ -1013,8 +1018,27 @@ async def download_file(file_id: str, current_user: dict = Depends(get_current_u
             raise HTTPException(status_code=404, detail="File not found")
         
         original_name = file_record.get('original_name')
-        file_path = file_record.get('file_path')
+        file_path_from_db = file_record.get('file_path')
+        filename_from_db = file_record.get('filename')
         file_owner_id = file_record.get('user_id')
+        
+        # 调试：打印从数据库获取的文件信息
+        print(f"📋 数据库中的文件记录:")
+        print(f"   - original_name: {original_name}")
+        print(f"   - file_path (from DB): {file_path_from_db}")
+        print(f"   - filename (from DB): {filename_from_db}")
+        print(f"   - file_owner_id: {file_owner_id}")
+        
+        # 优先使用 filename 字段构建文件路径（因为它是相对路径，不包含服务器特定路径）
+        # 如果 filename 不存在，再尝试使用 file_path
+        if filename_from_db:
+            file_path = os.path.join(UPLOAD_DIR, filename_from_db)
+            print(f"📄 使用 filename 构建路径: {file_path}")
+        elif file_path_from_db:
+            file_path = file_path_from_db
+            print(f"📄 使用 file_path 构建路径: {file_path}")
+        else:
+            raise HTTPException(status_code=404, detail="File path not found in database")
         
         # 检查文件是否在评论附件中（允许任何人下载评论附件）
         # 扫描所有评论查找包含此文件ID的附件
@@ -1035,15 +1059,38 @@ async def download_file(file_id: str, current_user: dict = Depends(get_current_u
             if is_comment_attachment:
                 break
         
-        # 如果是评论附件或者是文件所有者，允许下载
-        if not is_comment_attachment and file_owner_id != current_user["id"]:
-            print(f"❌ 权限不足: 用户 {current_user['id']} 尝试下载文件 {file_id}")
-            raise HTTPException(status_code=403, detail="You don't have permission to download this file")
+        # 获取用户角色
+        user_role = current_user.get('role') or get_user_role(current_user.get('email', ''))
         
-        print(f"📄 文件信息: {original_name} -> {file_path}")
+        # 权限检查：允许下载的情况：
+        # 1. 评论附件（任何人都可以下载）
+        # 2. 文件所有者
+        # 3. 管理员（admin）可以下载所有文件
+        if not is_comment_attachment and file_owner_id != current_user["id"]:
+            if not is_admin(user_role):
+                print(f"❌ 权限不足: 用户 {current_user['id']} 尝试下载文件 {file_id}")
+                raise HTTPException(status_code=403, detail="You don't have permission to download this file")
+            else:
+                print(f"✅ 管理员 {current_user['id']} 下载文件 {file_id}")
+        
+        # 确保文件路径是绝对路径
+        if not os.path.isabs(file_path):
+            file_path = os.path.normpath(file_path)
+        
+        print(f"📄 最终文件路径: {file_path}")
         
         if not os.path.exists(file_path):
             print(f"❌ 文件不存在于磁盘: {file_path}")
+            print(f"📂 当前工作目录: {os.getcwd()}")
+            print(f"📂 脚本目录: {BASE_DIR}")
+            print(f"📂 UPLOAD_DIR: {UPLOAD_DIR}")
+            # 尝试列出 uploads 目录中的文件（用于调试）
+            if os.path.exists(UPLOAD_DIR):
+                try:
+                    files_in_dir = os.listdir(UPLOAD_DIR)
+                    print(f"📂 uploads 目录中的文件: {files_in_dir[:10]}")  # 只显示前10个
+                except:
+                    pass
             raise HTTPException(status_code=404, detail="File not found on disk")
         
         print(f"✅ 返回文件: {original_name}")

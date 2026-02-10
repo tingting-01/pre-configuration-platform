@@ -38,9 +38,22 @@ const RequestDetails = () => {
   const { user, logout } = useAuthStore()
   const { toasts, showError, showSuccess, removeToast } = useToast()
   const [activeSection, setActiveSection] = useState('overview')
-  const [users, setUsers] = useState<any[]>([])
   const [isExporting, setIsExporting] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  
+  // 使用 React Query 获取用户列表，启用缓存（用户列表变化频率低，可以缓存较长时间）
+  const { data: users = [] } = useQuery(
+    ['users', user?.email],
+    () => requestAPI.getUsers(),
+    {
+      enabled: !!user?.email?.toLowerCase().endsWith('@rakwireless.com'), // 仅RAK Wireless用户需要加载
+      staleTime: 10 * 60 * 1000, // 数据在10分钟内被认为是新鲜的（用户列表变化频率低）
+      cacheTime: 30 * 60 * 1000, // 缓存保留30分钟
+      refetchOnWindowFocus: false, // 窗口获得焦点时不自动刷新
+      refetchOnMount: false, // 组件挂载时如果缓存数据存在且未过期，不重新请求
+      retry: 1,
+    }
+  )
 
   const handleLogout = () => {
     setShowLogoutConfirm(true)
@@ -61,18 +74,6 @@ const RequestDetails = () => {
     }
   )
 
-  // 加载用户列表（用于显示分配人员）
-  useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        const data = await requestAPI.getUsers()
-        setUsers(data)
-      } catch (error) {
-        console.error('Failed to load users:', error)
-      }
-    }
-    loadUsers()
-  }, [])
 
   // 获取分配人员显示名称
   const getAssigneeDisplay = () => {
@@ -604,7 +605,7 @@ const RequestDetails = () => {
     try {
       const { token } = useAuthStore.getState()
       if (!token) {
-        console.error('No token available for download')
+        showError('No authentication token available for download')
         return null
       }
       
@@ -619,11 +620,29 @@ const RequestDetails = () => {
       if (response.ok) {
         return await response.blob()
       } else {
-        console.error(`Failed to download file ${fileName}:`, response.status, response.statusText)
+        // 解析错误信息
+        let errorMessage = `Failed to download file: ${fileName}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.detail || errorData.message || errorMessage
+        } catch {
+          // 如果不是JSON格式，使用状态码
+          if (response.status === 403) {
+            errorMessage = `You don't have permission to download this file: ${fileName}`
+          } else if (response.status === 404) {
+            errorMessage = `File not found: ${fileName}`
+          } else {
+            errorMessage = `Failed to download file: ${fileName} (${response.status} ${response.statusText})`
+          }
+        }
+        console.error(`Failed to download file ${fileName}:`, response.status, errorMessage)
+        showError(errorMessage)
         return null
       }
     } catch (error) {
+      const errorMessage = `Error downloading file: ${fileName}. ${error instanceof Error ? error.message : 'Unknown error'}`
       console.error(`Error downloading file ${fileName}:`, error)
+      showError(errorMessage)
       return null
     }
   }
@@ -2377,14 +2396,62 @@ const RequestDetails = () => {
                                     {config.lora.packetForwarder.mqttBridge.caCertificate.name} 
                                     ({Math.round(config.lora.packetForwarder.mqttBridge.caCertificate.size / 1024)}KB)
                                   </span>
-                                  <a
-                                    href={`http://localhost:8000/api/files/${config.lora.packetForwarder.mqttBridge.caCertificate.id}`}
-                                    download
-                                    className="text-blue-600 hover:text-blue-800 text-xs flex items-center"
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const { token } = useAuthStore.getState()
+                                        if (!token) {
+                                          console.error('No token available for download')
+                                          return
+                                        }
+                                        
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.packetForwarder.mqttBridge.caCertificate.id}`, {
+                                          method: 'GET',
+                                          headers: {
+                                            'Authorization': `Bearer ${token}`,
+                                            'Content-Type': 'application/json'
+                                          }
+                                        });
+                                        
+                                        if (response.ok) {
+                                          const blob = await response.blob();
+                                          const url = window.URL.createObjectURL(blob);
+                                          const a = document.createElement('a');
+                                          a.href = url;
+                                          a.download = config.lora.packetForwarder.mqttBridge.caCertificate.name;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          window.URL.revokeObjectURL(url);
+                                          document.body.removeChild(a);
+                                        } else {
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
+                                        }
+                                      } catch (error) {
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
+                                      }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
                                   >
                                     <Download className="h-3 w-3 mr-1" />
                                     Download
-                                  </a>
+                                  </button>
                                 </dd>
                               </div>
                             )}
@@ -2396,14 +2463,62 @@ const RequestDetails = () => {
                                     {config.lora.packetForwarder.mqttBridge.clientCertificate.name} 
                                     ({Math.round(config.lora.packetForwarder.mqttBridge.clientCertificate.size / 1024)}KB)
                                   </span>
-                                  <a
-                                    href={`http://localhost:8000/api/files/${config.lora.packetForwarder.mqttBridge.clientCertificate.id}`}
-                                    download
-                                    className="text-blue-600 hover:text-blue-800 text-xs flex items-center"
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const { token } = useAuthStore.getState()
+                                        if (!token) {
+                                          console.error('No token available for download')
+                                          return
+                                        }
+                                        
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.packetForwarder.mqttBridge.clientCertificate.id}`, {
+                                          method: 'GET',
+                                          headers: {
+                                            'Authorization': `Bearer ${token}`,
+                                            'Content-Type': 'application/json'
+                                          }
+                                        });
+                                        
+                                        if (response.ok) {
+                                          const blob = await response.blob();
+                                          const url = window.URL.createObjectURL(blob);
+                                          const a = document.createElement('a');
+                                          a.href = url;
+                                          a.download = config.lora.packetForwarder.mqttBridge.clientCertificate.name;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          window.URL.revokeObjectURL(url);
+                                          document.body.removeChild(a);
+                                        } else {
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
+                                        }
+                                      } catch (error) {
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
+                                      }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
                                   >
                                     <Download className="h-3 w-3 mr-1" />
                                     Download
-                                  </a>
+                                  </button>
                                 </dd>
                               </div>
                             )}
@@ -2415,14 +2530,62 @@ const RequestDetails = () => {
                                     {config.lora.packetForwarder.mqttBridge.clientKey.name} 
                                     ({Math.round(config.lora.packetForwarder.mqttBridge.clientKey.size / 1024)}KB)
                                   </span>
-                                  <a
-                                    href={`http://localhost:8000/api/files/${config.lora.packetForwarder.mqttBridge.clientKey.id}`}
-                                    download
-                                    className="text-blue-600 hover:text-blue-800 text-xs flex items-center"
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        const { token } = useAuthStore.getState()
+                                        if (!token) {
+                                          console.error('No token available for download')
+                                          return
+                                        }
+                                        
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.packetForwarder.mqttBridge.clientKey.id}`, {
+                                          method: 'GET',
+                                          headers: {
+                                            'Authorization': `Bearer ${token}`,
+                                            'Content-Type': 'application/json'
+                                          }
+                                        });
+                                        
+                                        if (response.ok) {
+                                          const blob = await response.blob();
+                                          const url = window.URL.createObjectURL(blob);
+                                          const a = document.createElement('a');
+                                          a.href = url;
+                                          a.download = config.lora.packetForwarder.mqttBridge.clientKey.name;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          window.URL.revokeObjectURL(url);
+                                          document.body.removeChild(a);
+                                        } else {
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
+                                        }
+                                      } catch (error) {
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
+                                      }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
                                   >
                                     <Download className="h-3 w-3 mr-1" />
                                     Download
-                                  </a>
+                                  </button>
                                 </dd>
                               </div>
                             )}
@@ -2506,7 +2669,7 @@ const RequestDetails = () => {
                                           return
                                         }
                                         
-                                        const response = await fetch(`http://localhost:8000/api/files/${config.lora.basicStation.trustCaCertificate.id}`, {
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.basicStation.trustCaCertificate.id}`, {
                                           method: 'GET',
                                           headers: {
                                             'Authorization': `Bearer ${token}`,
@@ -2525,10 +2688,28 @@ const RequestDetails = () => {
                                           window.URL.revokeObjectURL(url);
                                           document.body.removeChild(a);
                                         } else {
-                                          console.error('Failed to download file:', response.status, response.statusText);
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            // 如果不是JSON格式，使用状态码
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
                                         }
                                       } catch (error) {
-                                        console.error('Error downloading file:', error);
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
                                       }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
@@ -2556,7 +2737,7 @@ const RequestDetails = () => {
                                           return
                                         }
                                         
-                                        const response = await fetch(`http://localhost:8000/api/files/${config.lora.basicStation.clientCertificate.id}`, {
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.basicStation.clientCertificate.id}`, {
                                           method: 'GET',
                                           headers: {
                                             'Authorization': `Bearer ${token}`,
@@ -2575,10 +2756,28 @@ const RequestDetails = () => {
                                           window.URL.revokeObjectURL(url);
                                           document.body.removeChild(a);
                                         } else {
-                                          console.error('Failed to download file:', response.status, response.statusText);
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            // 如果不是JSON格式，使用状态码
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
                                         }
                                       } catch (error) {
-                                        console.error('Error downloading file:', error);
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
                                       }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
@@ -2606,7 +2805,7 @@ const RequestDetails = () => {
                                           return
                                         }
                                         
-                                        const response = await fetch(`http://localhost:8000/api/files/${config.lora.basicStation.clientKey.id}`, {
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.basicStation.clientKey.id}`, {
                                           method: 'GET',
                                           headers: {
                                             'Authorization': `Bearer ${token}`,
@@ -2625,10 +2824,28 @@ const RequestDetails = () => {
                                           window.URL.revokeObjectURL(url);
                                           document.body.removeChild(a);
                                         } else {
-                                          console.error('Failed to download file:', response.status, response.statusText);
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            // 如果不是JSON格式，使用状态码
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
                                         }
                                       } catch (error) {
-                                        console.error('Error downloading file:', error);
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
                                       }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
@@ -2665,7 +2882,7 @@ const RequestDetails = () => {
                                           return
                                         }
                                         
-                                        const response = await fetch(`http://localhost:8000/api/files/${config.lora.basicStation.batchTtnFile.id}`, {
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.basicStation.batchTtnFile.id}`, {
                                           method: 'GET',
                                           headers: {
                                             'Authorization': `Bearer ${token}`,
@@ -2684,10 +2901,28 @@ const RequestDetails = () => {
                                           window.URL.revokeObjectURL(url);
                                           document.body.removeChild(a);
                                         } else {
-                                          console.error('Failed to download file:', response.status, response.statusText);
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            // 如果不是JSON格式，使用状态码
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
                                         }
                                       } catch (error) {
-                                        console.error('Error downloading file:', error);
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
                                       }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
@@ -2715,7 +2950,7 @@ const RequestDetails = () => {
                                           return
                                         }
                                         
-                                        const response = await fetch(`http://localhost:8000/api/files/${config.lora.basicStation.batchAwsFile.id}`, {
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${config.lora.basicStation.batchAwsFile.id}`, {
                                           method: 'GET',
                                           headers: {
                                             'Authorization': `Bearer ${token}`,
@@ -2734,10 +2969,28 @@ const RequestDetails = () => {
                                           window.URL.revokeObjectURL(url);
                                           document.body.removeChild(a);
                                         } else {
-                                          console.error('Failed to download file:', response.status, response.statusText);
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            // 如果不是JSON格式，使用状态码
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
                                         }
                                       } catch (error) {
-                                        console.error('Error downloading file:', error);
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
                                       }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 text-xs flex items-center cursor-pointer"
@@ -3005,12 +3258,28 @@ const RequestDetails = () => {
                                   window.URL.revokeObjectURL(url);
                                   document.body.removeChild(a);
                                 } else {
-                                  console.error('Failed to download file:', response.status, response.statusText);
-                                  showError('Failed to download file');
+                                  // 解析错误信息
+                                  let errorMessage = `Failed to download file: ${file.name}`
+                                  try {
+                                    const errorData = await response.json()
+                                    errorMessage = errorData.detail || errorData.message || errorMessage
+                                  } catch {
+                                    // 如果不是JSON格式，使用状态码
+                                    if (response.status === 403) {
+                                      errorMessage = `You don't have permission to download this file: ${file.name}`
+                                    } else if (response.status === 404) {
+                                      errorMessage = `File not found: ${file.name}`
+                                    } else {
+                                      errorMessage = `Failed to download file: ${file.name} (${response.status} ${response.statusText})`
+                                    }
+                                  }
+                                  console.error('Failed to download file:', response.status, errorMessage)
+                                  showError(errorMessage)
                                 }
                               } catch (error) {
-                                console.error('Error downloading file:', error);
-                                showError('Error downloading file');
+                                const errorMessage = `Error downloading file: ${file.name}. ${error instanceof Error ? error.message : 'Unknown error'}`
+                                console.error('Error downloading file:', error)
+                                showError(errorMessage)
                               }
                             }}
                             className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -3073,7 +3342,7 @@ const RequestDetails = () => {
                                         }
                                         
                                         // 使用API服务下载文件
-                                        const response = await fetch(`http://localhost:8000/api/files/${file.id}`, {
+                                        const response = await fetch(`${getApiBaseUrl()}/api/files/${file.id}`, {
                                           method: 'GET',
                                           headers: {
                                             'Authorization': `Bearer ${token}`,
@@ -3092,10 +3361,28 @@ const RequestDetails = () => {
                                           window.URL.revokeObjectURL(url);
                                           document.body.removeChild(a);
                                         } else {
-                                          console.error('Failed to download file:', response.status, response.statusText);
+                                          // 解析错误信息
+                                          let errorMessage = 'Failed to download file'
+                                          try {
+                                            const errorData = await response.json()
+                                            errorMessage = errorData.detail || errorData.message || errorMessage
+                                          } catch {
+                                            // 如果不是JSON格式，使用状态码
+                                            if (response.status === 403) {
+                                              errorMessage = 'You don\'t have permission to download this file'
+                                            } else if (response.status === 404) {
+                                              errorMessage = 'File not found'
+                                            } else {
+                                              errorMessage = `Failed to download file (${response.status} ${response.statusText})`
+                                            }
+                                          }
+                                          console.error('Failed to download file:', response.status, errorMessage)
+                                          showError(errorMessage)
                                         }
                                       } catch (error) {
-                                        console.error('Error downloading file:', error);
+                                        const errorMessage = `Error downloading file: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        console.error('Error downloading file:', error)
+                                        showError(errorMessage)
                                       }
                                     }}
                                     className="text-blue-600 hover:text-blue-800 text-xs flex items-center space-x-1 cursor-pointer"
@@ -3115,13 +3402,61 @@ const RequestDetails = () => {
                     <div>
                       <dt className="text-sm font-medium text-gray-500">Uploaded File</dt>
                       <dd className="mt-1 text-sm text-gray-900">
-                        <a 
-                          href={`http://localhost:8000/api/files/${config.other.uploadedFile.id}`}
-                          download={config.other.uploadedFile.name}
+                        <button
+                          onClick={async () => {
+                            try {
+                              const { token } = useAuthStore.getState()
+                              if (!token) {
+                                console.error('No token available for download')
+                                return
+                              }
+                              
+                              const response = await fetch(`${getApiBaseUrl()}/api/files/${config.other.uploadedFile.id}`, {
+                                method: 'GET',
+                                headers: {
+                                  'Authorization': `Bearer ${token}`,
+                                  'Content-Type': 'application/json'
+                                }
+                              });
+                              
+                              if (response.ok) {
+                                const blob = await response.blob();
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = config.other.uploadedFile.name;
+                                document.body.appendChild(a);
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                                document.body.removeChild(a);
+                              } else {
+                                // 解析错误信息
+                                let errorMessage = `Failed to download file: ${config.other.uploadedFile.name}`
+                                try {
+                                  const errorData = await response.json()
+                                  errorMessage = errorData.detail || errorData.message || errorMessage
+                                } catch {
+                                  if (response.status === 403) {
+                                    errorMessage = `You don't have permission to download this file: ${config.other.uploadedFile.name}`
+                                  } else if (response.status === 404) {
+                                    errorMessage = `File not found: ${config.other.uploadedFile.name}`
+                                  } else {
+                                    errorMessage = `Failed to download file: ${config.other.uploadedFile.name} (${response.status} ${response.statusText})`
+                                  }
+                                }
+                                console.error('Failed to download file:', response.status, errorMessage)
+                                showError(errorMessage)
+                              }
+                            } catch (error) {
+                              const errorMessage = `Error downloading file: ${config.other.uploadedFile.name}. ${error instanceof Error ? error.message : 'Unknown error'}`
+                              console.error('Error downloading file:', error)
+                              showError(errorMessage)
+                            }
+                          }}
                           className="text-blue-600 hover:text-blue-800 underline"
                         >
                           {config.other.uploadedFile.name} ({config.other.uploadedFile.size})
-                        </a>
+                        </button>
                       </dd>
                     </div>
                   )}

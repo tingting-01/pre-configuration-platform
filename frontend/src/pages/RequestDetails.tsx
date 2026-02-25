@@ -2127,7 +2127,7 @@ const RequestDetails = () => {
                         const hasNonDefaultLanEthernet = lanEthernet === true
                         
                         // WiFi AP: 检查是否被修改
-                        // 默认值：enabled = true, ssid = '', encryption = 'none', password = ''
+                        // 默认值：enabled = true, ssid = '', encryption = 'none', password = '', hideSsid = false
                         let hasNonDefaultWifiAp = false
                         if (wifiAp) {
                           // 如果 enabled 不是默认值 true（即 false），则显示
@@ -2139,12 +2139,14 @@ const RequestDetails = () => {
                             const ssid = (wifiAp.ssid || '').trim()
                             const encryption = wifiAp.encryption || ''
                             const password = (wifiAp.password || '').trim()
+                            const hideSsid = wifiAp.hideSsid === true
                             
                             const hasNonDefaultSsid = ssid !== ''
                             const hasNonDefaultEncryption = encryption !== '' && encryption !== 'none'
                             const hasNonDefaultPassword = password !== ''
+                            const hasNonDefaultHideSsid = hideSsid === true
                             
-                            hasNonDefaultWifiAp = hasNonDefaultSsid || hasNonDefaultEncryption || hasNonDefaultPassword
+                            hasNonDefaultWifiAp = hasNonDefaultSsid || hasNonDefaultEncryption || hasNonDefaultPassword || hasNonDefaultHideSsid
                           }
                         }
                         
@@ -2188,6 +2190,16 @@ const RequestDetails = () => {
                                       <div>
                                         <dt className="text-xs text-gray-500">SSID</dt>
                                         <dd>{displayConfigValueWithStyle(wifiAp.ssid, 'text')}</dd>
+                                      </div>
+                                      <div>
+                                        <dt className="text-xs text-gray-500">Hide SSID</dt>
+                                        <dd>
+                                          {wifiAp.hideSsid === true ? (
+                                            <span className="text-sm text-gray-900">Enabled</span>
+                                          ) : (
+                                            <span className="text-sm text-gray-900">Disabled</span>
+                                          )}
+                                        </dd>
                                       </div>
                                       <div>
                                         <dt className="text-xs text-gray-500">Encryption</dt>
@@ -3057,6 +3069,17 @@ const RequestDetails = () => {
                               <dt className="text-xs text-gray-500 mb-1">Gateway Description Rule</dt>
                               <dd className="text-sm text-gray-900 break-words">{displayTextValue(config.lora.basicStation.awsConfig.gatewayDescriptionRule, '') || ''}</dd>
                             </div>
+                            {config.lora.basicStation.awsConfig.subband && Array.isArray(config.lora.basicStation.awsConfig.subband) && config.lora.basicStation.awsConfig.subband.length > 0 && (
+                              <div>
+                                <dt className="text-xs text-gray-500 mb-1">Subband</dt>
+                                <dd className="text-sm text-gray-900">
+                                  {config.lora.basicStation.awsConfig.subband
+                                    .map((s: any) => String(s))
+                                    .sort((a: string, b: string) => parseInt(a) - parseInt(b))
+                                    .join(', ')}
+                                </dd>
+                              </div>
+                            )}
                             <div>
                               <dt className="text-xs text-gray-500 mb-1">Use Class B Mode</dt>
                               <dd className="text-sm text-gray-900">

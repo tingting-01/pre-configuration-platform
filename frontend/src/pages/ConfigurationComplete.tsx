@@ -26,6 +26,7 @@ const ConfigurationComplete = () => {
   const [showAddTag, setShowAddTag] = useState(false)
   const [newTagType, setNewTagType] = useState('custom')
   const [newTagValue, setNewTagValue] = useState('')
+  const [showSubbandDropdown, setShowSubbandDropdown] = useState(false)
   
   // 模板相关状态
   const [showTemplateSelector, setShowTemplateSelector] = useState(false)
@@ -80,6 +81,24 @@ const ConfigurationComplete = () => {
     }
   }, [isAuthenticated, token, navigate])
   
+  // 处理点击外部区域关闭 Subband 下拉框
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (showSubbandDropdown && !target.closest('.subband-dropdown-container')) {
+        setShowSubbandDropdown(false)
+      }
+    }
+    
+    if (showSubbandDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showSubbandDropdown])
+  
   // 检测屏幕尺寸（保留以备将来使用）
   // React.useEffect(() => {
   //   const checkScreenSize = () => {
@@ -115,6 +134,7 @@ const ConfigurationComplete = () => {
     lanEthernet: false,
     wifiApEnabled: true,
     wifiApSsid: '',
+    wifiApHideSsid: false,
     wifiApEncryption: 'none',
     wifiApPassword: '',
     
@@ -175,6 +195,7 @@ const ConfigurationComplete = () => {
     awsDefaultRegion: '',
     awsGatewayNameRule: '',
     awsGatewayDescriptionRule: '',
+    awsSubband: [] as string[],
     awsUseClassBMode: false,
     
     // TTN Config
@@ -548,6 +569,7 @@ const ConfigurationComplete = () => {
             if (config.network.lan.wifiAp) {
               newData.wifiApEnabled = config.network.lan.wifiAp.enabled ?? true
               newData.wifiApSsid = config.network.lan.wifiAp.ssid || ''
+              newData.wifiApHideSsid = config.network.lan.wifiAp.hideSsid ?? false
               newData.wifiApEncryption = config.network.lan.wifiAp.encryption || 'none'
               newData.wifiApPassword = config.network.lan.wifiAp.password || ''
             }
@@ -613,6 +635,7 @@ const ConfigurationComplete = () => {
               newData.awsDefaultRegion = config.lora.basicStation.awsConfig.defaultRegion || ''
               newData.awsGatewayNameRule = config.lora.basicStation.awsConfig.gatewayNameRule || ''
               newData.awsGatewayDescriptionRule = config.lora.basicStation.awsConfig.gatewayDescriptionRule || ''
+              newData.awsSubband = config.lora.basicStation.awsConfig.subband || []
               newData.awsUseClassBMode = config.lora.basicStation.awsConfig.useClassBMode ?? false
             }
             
@@ -899,6 +922,7 @@ const ConfigurationComplete = () => {
             awsDefaultRegion: '',
             awsGatewayNameRule: '',
             awsGatewayDescriptionRule: '',
+            awsSubband: [],
             awsUseClassBMode: false,
             // 重置TTN配置
             ttnAdminToken: '',
@@ -1520,6 +1544,7 @@ const ConfigurationComplete = () => {
             wifiAp: { 
               enabled: formData.wifiApEnabled,
               ssid: formData.wifiApSsid,
+              hideSsid: formData.wifiApHideSsid,
               encryption: formData.wifiApEncryption,
               password: formData.wifiApPassword
             }
@@ -1577,6 +1602,7 @@ const ConfigurationComplete = () => {
                   defaultRegion: formData.awsDefaultRegion,
                   gatewayNameRule: formData.awsGatewayNameRule,
                   gatewayDescriptionRule: formData.awsGatewayDescriptionRule,
+                  subband: formData.awsSubband,
                   useClassBMode: formData.awsUseClassBMode
                 }
               }),
@@ -3639,28 +3665,80 @@ const ConfigurationComplete = () => {
                           }}>
                             WiFi AP Configuration
                           </h5>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                            <div>
-                              <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', marginBottom: '6px', color: '#374151' }}>
-                                Network Name (SSID)
-                              </label>
-                              <input
-                                type="text"
-                                value={formData.wifiApSsid}
-                                onChange={(e) => handleInputChange('wifiApSsid', e.target.value)}
-                                placeholder="MyWiFiNetwork"
-                                style={{
-                                  width: '100%',
-                                  padding: '10px',
-                                  border: '1px solid #d1d5db',
-                                  borderRadius: '6px',
+                          <div>
+                            <div style={{width: '30%', marginBottom: '20px'}}>
+                              {!formData.wifiApHideSsid && (
+                                <>
+                                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', marginBottom: '6px', color: '#374151' }}>
+                                    Network Name (SSID)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={formData.wifiApSsid}
+                                    onChange={(e) => handleInputChange('wifiApSsid', e.target.value)}
+                                    placeholder="MyWiFiNetwork"
+                                    style={{
+                                      width: '100%',
+                                      padding: '10px',
+                                      border: '1px solid #d1d5db',
+                                      borderRadius: '6px',
+                                      fontSize: '14px',
+                                      outline: 'none',
+                                      background: '#ffffff'
+                                    }}
+                                  />
+                                </>
+                              )}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: formData.wifiApHideSsid ? '0' : '12px' }}>
+                                <label style={{
+                                  display: 'inline-block',
+                                  position: 'relative',
+                                  width: '48px',
+                                  height: '24px',
+                                  cursor: 'pointer'
+                                }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={formData.wifiApHideSsid}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      handleInputChange('wifiApHideSsid', e.target.checked);
+                                    }}
+                                    style={{ display: 'none' }}
+                                  />
+                                  <div style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    background: formData.wifiApHideSsid ? '#4c1d95' : '#d1d5db',
+                                    borderRadius: '24px',
+                                    transition: 'background-color 0.3s'
+                                  }}>
+                                    <div style={{
+                                      position: 'absolute',
+                                      top: '2px',
+                                      left: formData.wifiApHideSsid ? '26px' : '2px',
+                                      width: '20px',
+                                      height: '20px',
+                                      background: '#ffffff',
+                                      borderRadius: '50%',
+                                      transition: 'left 0.3s'
+                                    }} />
+                                  </div>
+                                </label>
+                                <span style={{
                                   fontSize: '14px',
-                                  outline: 'none',
-                                  background: '#ffffff'
-                                }}
-                              />
+                                  fontWeight: '500',
+                                  color: formData.wifiApHideSsid ? '#1f2937' : '#6b7280'
+                                }}>
+                                  Hide SSID
+                                </span>
+                              </div>
                             </div>
-                            <div>
+
+                            <div style={{width: '30%', marginBottom: '20px'}}>
                               <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', marginBottom: '6px', color: '#374151' }}>
                                 Encryption
                               </label>
@@ -3684,7 +3762,7 @@ const ConfigurationComplete = () => {
                                 <option value="wpa-mixed">WPA-PSK/WPA2-PSK Mixed Mode</option>
                               </select>
                             </div>
-                            <div>
+                            <div style={{width: '30%'}}>
                               <label style={{ display: 'block', fontSize: '12px', fontWeight: '500', marginBottom: '6px', color: '#374151' }}>
                                 Password
                               </label>
@@ -4686,7 +4764,7 @@ const ConfigurationComplete = () => {
                                 handleInputChange('basicStationBatchAwsIot', false);
                               }
                             }}
-                            style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
+                            style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                           />
                           <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                             ZTP
@@ -4703,7 +4781,7 @@ const ConfigurationComplete = () => {
                                   handleInputChange('basicStationZtp', false);
                                 }
                               }}
-                              style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
+                              style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                             />
                             <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                               Batch add to AWS IoT Core
@@ -4854,12 +4932,107 @@ const ConfigurationComplete = () => {
                               />
                             </div>
                             <div>
+                              <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', fontWeight: '500', marginBottom: '6px' }}>
+                                Subband
+                              </label>
+                              <div className="subband-dropdown-container" style={{
+                                width: '100%',
+                                minHeight: '36px',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '6px',
+                                padding: '8px 10px',
+                                background: '#fff',
+                                cursor: 'pointer',
+                                position: 'relative'
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setShowSubbandDropdown(!showSubbandDropdown)
+                              }}
+                              >
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  fontSize: '14px',
+                                  color: formData.awsSubband.length > 0 ? '#1f2937' : '#9ca3af'
+                                }}>
+                                  <span>
+                                    {formData.awsSubband.length > 0 
+                                      ? formData.awsSubband.sort((a, b) => parseInt(a) - parseInt(b)).join(', ')
+                                      : 'Select Subband'}
+                                  </span>
+                                  <span style={{ fontSize: '12px', transform: showSubbandDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                                </div>
+                                {showSubbandDropdown && (
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  right: 0,
+                                  marginTop: '4px',
+                                  background: '#fff',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: '6px',
+                                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                                  zIndex: 1000,
+                                  maxHeight: '200px',
+                                  overflowY: 'auto'
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                >
+                                  {[1, 2, 3, 4, 5, 6, 7, 8].map((num) => (
+                                    <div
+                                      key={num}
+                                      style={{
+                                        padding: '8px 12px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        backgroundColor: formData.awsSubband.includes(num.toString()) ? '#f3e8ff' : 'transparent'
+                                      }}
+                                      onClick={() => {
+                                        const currentSubband = [...formData.awsSubband]
+                                        const numStr = num.toString()
+                                        if (currentSubband.includes(numStr)) {
+                                          const newSubband = currentSubband.filter(s => s !== numStr)
+                                          handleInputChange('awsSubband', newSubband)
+                                        } else {
+                                          handleInputChange('awsSubband', [...currentSubband, numStr])
+                                        }
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.backgroundColor = formData.awsSubband.includes(num.toString()) ? '#f3e8ff' : '#f3e8ff'
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        if (formData.awsSubband.includes(num.toString())) {
+                                          e.currentTarget.style.backgroundColor = '#f3e8ff'
+                                        } else {
+                                          e.currentTarget.style.backgroundColor = 'transparent'
+                                        }
+                                      }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={formData.awsSubband.includes(num.toString())}
+                                        onChange={() => {}}
+                                        style={{ width: '16px', height: '16px', accentColor: '#7c3aed', cursor: 'pointer' }}
+                                      />
+                                      <span style={{ fontSize: '14px', color: '#1f2937' }}>{num}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                                )}
+                              </div>
+                            </div>
+                            <div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <input
                                   type="checkbox"
                                   checked={formData.awsUseClassBMode}
                                   onChange={(e) => handleInputChange('awsUseClassBMode', e.target.checked)}
-                                  style={{ width: '16px', height: '16px', accentColor: '#6b7280' }}
+                                  style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
                                 />
                                 <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
                                   Use Class B mode?
@@ -6859,6 +7032,7 @@ const ConfigurationComplete = () => {
                             wifiAp: { 
                               enabled: formData.wifiApEnabled,
                               ssid: formData.wifiApSsid,
+                              hideSsid: formData.wifiApHideSsid,
                               encryption: formData.wifiApEncryption,
                               password: formData.wifiApPassword
                             }
@@ -6914,6 +7088,7 @@ const ConfigurationComplete = () => {
                                   defaultRegion: formData.awsDefaultRegion,
                                   gatewayNameRule: formData.awsGatewayNameRule,
                                   gatewayDescriptionRule: formData.awsGatewayDescriptionRule,
+                                  subband: formData.awsSubband,
                                   useClassBMode: formData.awsUseClassBMode
                                 }
                               }),

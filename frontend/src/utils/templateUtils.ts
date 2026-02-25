@@ -65,6 +65,7 @@ const CONFIG_TO_FORM_MAPPING: Record<string, string> = {
   'network.lan.ethernet': 'lanEthernet',
   'network.lan.wifiAp.enabled': 'wifiApEnabled',
   'network.lan.wifiAp.ssid': 'wifiApSsid',
+  'network.lan.wifiAp.hideSsid': 'wifiApHideSsid',
   'network.lan.wifiAp.encryption': 'wifiApEncryption',
   'network.lan.wifiAp.password': 'wifiApPassword',
   
@@ -112,6 +113,7 @@ const CONFIG_TO_FORM_MAPPING: Record<string, string> = {
   'lora.basicStation.awsConfig.defaultRegion': 'awsDefaultRegion',
   'lora.basicStation.awsConfig.gatewayNameRule': 'awsGatewayNameRule',
   'lora.basicStation.awsConfig.gatewayDescriptionRule': 'awsGatewayDescriptionRule',
+  'lora.basicStation.awsConfig.subband': 'awsSubband',
   'lora.basicStation.awsConfig.useClassBMode': 'awsUseClassBMode',
   
   // Packet Forwarder UDP GWMP
@@ -289,6 +291,8 @@ export function templateConfigToFormData(
       } else if (formField === 'whitelistOuiList' && Array.isArray(value)) {
         formData[formField] = value
       } else if (formField === 'whitelistNetworkIdList' && Array.isArray(value)) {
+        formData[formField] = value
+      } else if (formField === 'awsSubband' && Array.isArray(value)) {
         formData[formField] = value
       } else {
         formData[formField] = value

@@ -203,18 +203,23 @@ export const filterNetworkConfig = (networkConfig: any) => {
       const ethernetEnabled = networkConfig.wan.ethernet.enabled
       const defaultEthernetEnabled = true
       
-      if (ethernetEnabled !== defaultEthernetEnabled || 
-          (networkConfig.wan.ethernet.trackingAddresses && 
+      const hasEthernetTrackingAddresses = networkConfig.wan.ethernet.trackingAddresses && 
            Array.isArray(networkConfig.wan.ethernet.trackingAddresses) && 
            networkConfig.wan.ethernet.trackingAddresses.length > 0 &&
-           networkConfig.wan.ethernet.trackingAddresses.some((addr: any) => addr && addr.trim()))) {
+           networkConfig.wan.ethernet.trackingAddresses.some((addr: any) => addr && addr.trim())
+      const hasEthernetTrackingMethod = networkConfig.wan.ethernet.trackingMethod && 
+           networkConfig.wan.ethernet.trackingMethod.trim() && 
+           networkConfig.wan.ethernet.trackingMethod !== 'icmp'
+      
+      if (ethernetEnabled !== defaultEthernetEnabled || 
+          hasEthernetTrackingAddresses ||
+          hasEthernetTrackingMethod) {
         wan.ethernet = { ...networkConfig.wan.ethernet }
-        if (!networkConfig.wan.ethernet.trackingAddresses || 
-            !Array.isArray(networkConfig.wan.ethernet.trackingAddresses) || 
-            networkConfig.wan.ethernet.trackingAddresses.length === 0 ||
-            !networkConfig.wan.ethernet.trackingAddresses.some((addr: any) => addr && addr.trim())) {
-          delete wan.ethernet.trackingMethod
+        if (!hasEthernetTrackingAddresses) {
           delete wan.ethernet.trackingAddresses
+          if (!hasEthernetTrackingMethod) {
+            delete wan.ethernet.trackingMethod
+          }
         }
       }
     }
@@ -223,12 +228,23 @@ export const filterNetworkConfig = (networkConfig: any) => {
       const wifiEnabled = networkConfig.wan.wifi.enabled
       const defaultWifiEnabled = false
       
-      if (wifiEnabled !== defaultWifiEnabled || 
-          (networkConfig.wan.wifi.ssid && networkConfig.wan.wifi.ssid.trim()) ||
-          (networkConfig.wan.wifi.trackingAddresses && 
+      const hasWifiSsid = networkConfig.wan.wifi.ssid && networkConfig.wan.wifi.ssid.trim()
+      const hasWifiEncryption = networkConfig.wan.wifi.encryption && networkConfig.wan.wifi.encryption !== 'none'
+      const hasWifiPassword = networkConfig.wan.wifi.password && networkConfig.wan.wifi.password.trim()
+      const hasWifiTrackingAddresses = networkConfig.wan.wifi.trackingAddresses && 
            Array.isArray(networkConfig.wan.wifi.trackingAddresses) && 
            networkConfig.wan.wifi.trackingAddresses.length > 0 &&
-           networkConfig.wan.wifi.trackingAddresses.some((addr: any) => addr && addr.trim()))) {
+           networkConfig.wan.wifi.trackingAddresses.some((addr: any) => addr && addr.trim())
+      const hasWifiTrackingMethod = networkConfig.wan.wifi.trackingMethod && 
+           networkConfig.wan.wifi.trackingMethod.trim() && 
+           networkConfig.wan.wifi.trackingMethod !== 'icmp'
+      
+      if (wifiEnabled !== defaultWifiEnabled || 
+          hasWifiSsid ||
+          hasWifiEncryption ||
+          hasWifiPassword ||
+          hasWifiTrackingAddresses ||
+          hasWifiTrackingMethod) {
         wan.wifi = { ...networkConfig.wan.wifi }
       }
     }
@@ -237,12 +253,19 @@ export const filterNetworkConfig = (networkConfig: any) => {
       const cellularEnabled = networkConfig.wan.cellular.enabled
       const defaultCellularEnabled = true
       
-      if (cellularEnabled !== defaultCellularEnabled || 
-          (networkConfig.wan.cellular.apn && networkConfig.wan.cellular.apn.trim()) ||
-          (networkConfig.wan.cellular.trackingAddresses && 
+      const hasCellularApn = networkConfig.wan.cellular.apn && networkConfig.wan.cellular.apn.trim()
+      const hasCellularTrackingAddresses = networkConfig.wan.cellular.trackingAddresses && 
            Array.isArray(networkConfig.wan.cellular.trackingAddresses) && 
            networkConfig.wan.cellular.trackingAddresses.length > 0 &&
-           networkConfig.wan.cellular.trackingAddresses.some((addr: any) => addr && addr.trim()))) {
+           networkConfig.wan.cellular.trackingAddresses.some((addr: any) => addr && addr.trim())
+      const hasCellularTrackingMethod = networkConfig.wan.cellular.trackingMethod && 
+           networkConfig.wan.cellular.trackingMethod.trim() && 
+           networkConfig.wan.cellular.trackingMethod !== 'icmp'
+      
+      if (cellularEnabled !== defaultCellularEnabled || 
+          hasCellularApn ||
+          hasCellularTrackingAddresses ||
+          hasCellularTrackingMethod) {
         wan.cellular = { ...networkConfig.wan.cellular }
       }
     }
@@ -266,6 +289,7 @@ export const filterNetworkConfig = (networkConfig: any) => {
       const defaultWifiApSsid = ''
       const defaultWifiApEncryption = 'none'
       const defaultWifiApPassword = ''
+      // hideSsid 默认值为 false
       
       let hasNonDefaultWifiAp = false
       if (wifiAp.enabled === false) {
@@ -274,12 +298,14 @@ export const filterNetworkConfig = (networkConfig: any) => {
         const ssid = (wifiAp.ssid || '').trim()
         const encryption = wifiAp.encryption || ''
         const password = (wifiAp.password || '').trim()
+        const hideSsid = wifiAp.hideSsid === true
         
         const hasNonDefaultSsid = ssid !== '' && ssid !== defaultWifiApSsid
         const hasNonDefaultEncryption = encryption !== '' && encryption !== defaultWifiApEncryption
         const hasNonDefaultPassword = password !== '' && password !== defaultWifiApPassword
+        const hasNonDefaultHideSsid = hideSsid === true
         
-        hasNonDefaultWifiAp = hasNonDefaultSsid || hasNonDefaultEncryption || hasNonDefaultPassword
+        hasNonDefaultWifiAp = hasNonDefaultSsid || hasNonDefaultEncryption || hasNonDefaultPassword || hasNonDefaultHideSsid
       }
       
       if (hasNonDefaultWifiAp) {
@@ -338,6 +364,13 @@ export const filterLoRaConfig = (loraConfig: any): any => {
     return result
   }
   
+  // 处理 LoRa 基本字段：country, region, mode
+  if (loraConfig.country && loraConfig.country.trim()) {
+    filtered.country = loraConfig.country
+  }
+  if (loraConfig.region && loraConfig.region.trim()) {
+    filtered.region = loraConfig.region
+  }
   if (loraConfig.mode && loraConfig.mode.trim()) {
     filtered.mode = loraConfig.mode
   }
@@ -411,7 +444,7 @@ export const filterLoRaConfig = (loraConfig: any): any => {
   
   const otherFields = filterObject(loraConfig, {})
   Object.keys(otherFields).forEach(key => {
-    if (key !== 'mode' && key !== 'whitelist' && key !== 'packetForwarder' && key !== 'basicStation') {
+    if (key !== 'mode' && key !== 'country' && key !== 'region' && key !== 'whitelist' && key !== 'packetForwarder' && key !== 'basicStation') {
       filtered[key] = otherFields[key]
     }
   })

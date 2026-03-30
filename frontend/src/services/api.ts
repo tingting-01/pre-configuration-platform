@@ -88,6 +88,8 @@ export interface Request {
   id: string
   companyName: string
   rakId: string
+  orderId?: string
+  configId?: string
   submitTime: string
   status: string
   assignee?: string
@@ -102,6 +104,7 @@ export interface Request {
 export interface CreateRequestRequest {
   companyName: string
   rakId: string
+  orderId: string
   configData: Record<string, any>
   changes: Record<string, any>
   originalConfig: Record<string, any>
@@ -146,7 +149,7 @@ export const requestAPI = {
     return response.data
   },
   
-  updateRequest: async (id: string, data: { status?: string; assignee?: string; configData?: Record<string, any>; companyName?: string; rakId?: string; tags?: Array<{ type: string; value: string; label: string }> }) => {
+  updateRequest: async (id: string, data: { status?: string; assignee?: string; configData?: Record<string, any>; companyName?: string; rakId?: string; orderId?: string; tags?: Array<{ type: string; value: string; label: string }> }) => {
     const response = await api.put(`/api/requests/${id}`, data)
     return response.data
   },

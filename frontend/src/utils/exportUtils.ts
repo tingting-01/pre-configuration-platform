@@ -505,7 +505,7 @@ export const convertToCSV = (config: any, requestInfo: any): string => {
     rows.push({ section: 'Request Information', path: 'Company Name', value: String(requestInfo.companyName) })
   }
   if (requestInfo.rakId) {
-    rows.push({ section: 'Request Information', path: 'RAK ID', value: String(requestInfo.rakId) })
+    rows.push({ section: 'Request Information', path: 'Customer Email', value: String(requestInfo.rakId) })
   }
   if (requestInfo.submitTime) {
     rows.push({ section: 'Request Information', path: 'Submit Time', value: String(requestInfo.submitTime) })

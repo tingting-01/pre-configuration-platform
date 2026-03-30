@@ -42,7 +42,7 @@ const AdvancedSearch = ({
   const fieldOptions = [
     { value: 'id', label: 'Request ID' },
     { value: 'companyName', label: 'Company' },
-    { value: 'rakId', label: 'RAK ID' },
+    { value: 'rakId', label: 'Customer Email' },
     { value: 'creatorEmail', label: 'Creator' },
     { value: 'status', label: 'Status' },
     { value: 'assignee', label: 'Assignee' },
@@ -319,7 +319,6 @@ const AdvancedSearch = ({
                   <option value="Open">Open</option>
                   <option value="Pre-configuration file creating">Pre-configuration file creating</option>
                   <option value="Pre-configuration file testing">Pre-configuration file testing</option>
-                  <option value="WisDM Provisioning">WisDM Provisioning</option>
                   <option value="Done">Done</option>
                 </select>
               ) : condition.field === 'priority' ? (

@@ -36,7 +36,7 @@ const ConfigurationComplete = () => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   
   // 检查认证状态
-  const { isAuthenticated, token, user } = useAuthStore()
+  const { isAuthenticated, token } = useAuthStore()
   
   // 如果是编辑模式，加载已有的request数据
   const { data: existingRequest } = useQuery(
@@ -115,7 +115,9 @@ const ConfigurationComplete = () => {
     // Order Information
     pid: '',
     barcode: '',
-    rakId: '', // 初始为空，将在useEffect中设置
+    rakId: '',
+    orderId: '',
+    customizationId: '',
     gatewayModel: '',
     customerName: '',
     priority: '', // High, Medium, Low
@@ -290,19 +292,6 @@ const ConfigurationComplete = () => {
     configFileSizes: []
   })
   
-  // 标记用户是否手动编辑过 RAK ID 字段
-  const rakIdManuallyEdited = React.useRef(false)
-  
-  // 当用户信息可用时，自动填充RAK ID字段（仅在初始加载时，如果用户未手动编辑过）
-  React.useEffect(() => {
-    if (user?.email && !formData.rakId && !rakIdManuallyEdited.current) {
-      setFormData(prev => ({
-        ...prev,
-        rakId: user.email
-      }))
-    }
-  }, [user?.email])
-
   // 生成标签的函数
   const generateTags = () => {
     const generatedTags: Array<{ type: string; value: string; label: string }> = []
@@ -533,6 +522,8 @@ const ConfigurationComplete = () => {
           newData.pid = config.general.pid || ''
           newData.barcode = config.general.barcode || ''
           newData.rakId = config.general.rakId || ''
+          newData.orderId = config.general.orderId || ''
+          newData.customizationId = config.general.customizationId || ''
           newData.gatewayModel = config.general.gatewayModel || ''
           newData.customerName = config.general.customerName || ''
           newData.priority = config.general.priority || ''
@@ -845,12 +836,20 @@ const ConfigurationComplete = () => {
   const validateRequiredFields = () => {
     const errors: Record<string, string> = {}
     
-    // Order Information 必填字段验证（仅 RAK ID 和 Name of the company）
+    // Order Information 必填字段验证（Customer Email、Order ID、Customization ID、Name of the company）
     const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+    const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
+    const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
     const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
     
     if (!rakIdValue || rakIdValue.length === 0) {
-      errors.rakId = 'RAK ID is required'
+      errors.rakId = 'Customer Email is required'
+    }
+    if (!orderIdValue || orderIdValue.length === 0) {
+      errors.orderId = 'Order ID is required'
+    }
+    if (!customizationIdValue || customizationIdValue.length === 0) {
+      errors.customizationId = 'Customization ID is required'
     }
     if (!customerNameValue || customerNameValue.length === 0) {
       errors.customerName = 'Company Name is required'
@@ -1466,10 +1465,18 @@ const ConfigurationComplete = () => {
     if (!validateRequiredFields()) {
       const missingFields: string[] = []
       const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+      const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
+      const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
       const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
       
       if (!rakIdValue || rakIdValue.length === 0) {
-        missingFields.push('RAK ID')
+        missingFields.push('Customer Email')
+      }
+      if (!orderIdValue || orderIdValue.length === 0) {
+        missingFields.push('Order ID')
+      }
+      if (!customizationIdValue || customizationIdValue.length === 0) {
+        missingFields.push('Customization ID')
       }
       if (!customerNameValue || customerNameValue.length === 0) {
         missingFields.push('Name of the company')
@@ -1479,7 +1486,7 @@ const ConfigurationComplete = () => {
       
       // 滚动到第一个错误字段
       setTimeout(() => {
-        const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="customerName"]')
+        const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="orderId"], [data-field="customizationId"], [data-field="customerName"]')
         if (firstErrorField) {
           firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' })
           const input = firstErrorField.querySelector('input')
@@ -1510,6 +1517,8 @@ const ConfigurationComplete = () => {
           pid: formData.pid,
           barcode: formData.barcode,
           rakId: formData.rakId,
+          orderId: formData.orderId,
+          customizationId: formData.customizationId,
           gatewayModel: formData.gatewayModel,
           customerName: formData.customerName,
           priority: formData.priority,
@@ -1726,6 +1735,7 @@ const ConfigurationComplete = () => {
         await requestAPI.updateRequest(editRequestId, {
           companyName: formData.customerName || 'Unnamed',
           rakId: formData.rakId,
+          orderId: formData.orderId,
           configData: configData,
           tags: tags
         })
@@ -1742,6 +1752,7 @@ const ConfigurationComplete = () => {
         await requestAPI.createRequest({
           companyName: formData.customerName || 'Unnamed',
           rakId: formData.rakId,
+          orderId: formData.orderId,
           configData: configData,
           changes: {},
           originalConfig: {},
@@ -2264,14 +2275,13 @@ const ConfigurationComplete = () => {
                 </div>
                 
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
-                  RAK ID <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+                  Customer Email <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
                 </div>
                 <div data-field="rakId">
                   <input
                     type="email"
                     value={formData.rakId}
                     onChange={(e) => {
-                      rakIdManuallyEdited.current = true
                       handleInputChange('rakId', e.target.value)
                       // 清除该字段的错误提示
                       if (validationErrors.rakId) {
@@ -2282,7 +2292,7 @@ const ConfigurationComplete = () => {
                         })
                       }
                     }}
-                    placeholder="Enter RAK ID"
+                    placeholder="Enter Customer Email"
                     style={{
                       width: '100%',
                       padding: '12px',
@@ -2296,6 +2306,78 @@ const ConfigurationComplete = () => {
                   {validationErrors.rakId && (
                     <div style={{ color: '#dc2626', fontSize: '12px', marginTop: '4px' }}>
                       {validationErrors.rakId}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
+                  Order ID <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+                </div>
+                <div data-field="orderId">
+                  <input
+                    type="text"
+                    value={formData.orderId}
+                    onChange={(e) => {
+                      handleInputChange('orderId', e.target.value)
+                      // 清除该字段的错误提示
+                      if (validationErrors.orderId) {
+                        setValidationErrors(prev => {
+                          const newErrors = { ...prev }
+                          delete newErrors.orderId
+                          return newErrors
+                        })
+                      }
+                    }}
+                    placeholder="Enter Order ID"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      border: validationErrors.orderId ? '1px solid #dc2626' : '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'border-color 0.2s, box-shadow 0.2s'
+                    }}
+                  />
+                  {validationErrors.orderId && (
+                    <div style={{ color: '#dc2626', fontSize: '12px', marginTop: '4px' }}>
+                      {validationErrors.orderId}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
+                  Customization ID <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+                </div>
+                <div data-field="customizationId">
+                  <input
+                    type="text"
+                    value={formData.customizationId}
+                    onChange={(e) => {
+                      handleInputChange('customizationId', e.target.value)
+                      // 清除该字段的错误提示
+                      if (validationErrors.customizationId) {
+                        setValidationErrors(prev => {
+                          const newErrors = { ...prev }
+                          delete newErrors.customizationId
+                          return newErrors
+                        })
+                      }
+                    }}
+                    placeholder="Enter Customization ID"
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      border: validationErrors.customizationId ? '1px solid #dc2626' : '1px solid #d1d5db',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      transition: 'border-color 0.2s, box-shadow 0.2s'
+                    }}
+                  />
+                  {validationErrors.customizationId && (
+                    <div style={{ color: '#dc2626', fontSize: '12px', marginTop: '4px' }}>
+                      {validationErrors.customizationId}
                     </div>
                   )}
                 </div>
@@ -6805,10 +6887,18 @@ const ConfigurationComplete = () => {
                 if (!validateRequiredFields()) {
                   const missingFields: string[] = []
                   const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+                  const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
+                  const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
                   const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
                   
                   if (!rakIdValue || rakIdValue.length === 0) {
-                    missingFields.push('RAK ID')
+                    missingFields.push('Customer Email')
+                  }
+                  if (!orderIdValue || orderIdValue.length === 0) {
+                    missingFields.push('Order ID')
+                  }
+                  if (!customizationIdValue || customizationIdValue.length === 0) {
+                    missingFields.push('Customization ID')
                   }
                   if (!customerNameValue || customerNameValue.length === 0) {
                     missingFields.push('Name of the company')
@@ -6818,7 +6908,7 @@ const ConfigurationComplete = () => {
                   
                   // 滚动到第一个错误字段
                   setTimeout(() => {
-                    const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="customerName"]')
+                    const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="orderId"], [data-field="customizationId"], [data-field="customerName"]')
                     if (firstErrorField) {
                       firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' })
                       const input = firstErrorField.querySelector('input')
@@ -6978,10 +7068,18 @@ const ConfigurationComplete = () => {
                     if (!validateRequiredFields()) {
                       const missingFields: string[] = []
                       const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
+                      const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
+                      const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
                       const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
                       
                       if (!rakIdValue || rakIdValue.length === 0) {
-                        missingFields.push('RAK ID')
+                        missingFields.push('Customer Email')
+                      }
+                      if (!orderIdValue || orderIdValue.length === 0) {
+                        missingFields.push('Order ID')
+                      }
+                      if (!customizationIdValue || customizationIdValue.length === 0) {
+                        missingFields.push('Customization ID')
                       }
                       if (!customerNameValue || customerNameValue.length === 0) {
                         missingFields.push('Name of the company')
@@ -6998,6 +7096,8 @@ const ConfigurationComplete = () => {
                           pid: formData.pid,
                           barcode: formData.barcode,
                           rakId: formData.rakId,
+                          orderId: formData.orderId,
+                          customizationId: formData.customizationId,
                           gatewayModel: formData.gatewayModel,
                           customerName: formData.customerName,
                           priority: formData.priority,

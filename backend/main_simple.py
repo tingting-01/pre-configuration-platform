@@ -182,6 +182,12 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+
+def build_config_id(customer_id: str, request_id: str, pid: str, barcode: str, order_id: str, status_value: str) -> str:
+    """按约定顺序生成 config_id。"""
+    parts = [customer_id or "", request_id or "", pid or "", barcode or "", order_id or "", status_value or ""]
+    return "_".join(str(part).strip() for part in parts)
+
 def init_database():
     """初始化 DynamoDB：确保默认 admin 用户存在"""
     admin_user_email = "admin@rakwireless.com"
@@ -472,6 +478,7 @@ async def get_requests(current_user: dict = Depends(get_current_user)):
                 "id": req.get('request_id'),
                 "companyName": req.get('company_name'),
                 "rakId": req.get('rak_id'),
+                "configId": req.get('config_id'),
                 "submitTime": req.get('submit_time'),
                 "status": req.get('status', 'Open'),
                 "assignee": req.get('assignee', ''),
@@ -535,6 +542,7 @@ async def get_request(request_id: str, current_user: dict = Depends(get_current_
             "id": req.get('request_id'),
             "companyName": req.get('company_name'),
             "rakId": req.get('rak_id'),
+            "configId": req.get('config_id'),
             "submitTime": req.get('submit_time'),
             "status": req.get('status', 'Open'),
             "assignee": req.get('assignee', ''),
@@ -749,6 +757,33 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         
         if "tags" in request_data:
             update_data['tags'] = request_data["tags"]
+
+        # 当 workflow 到达最终态（前端显示 RELEASED，实际状态值通常为 Done）时，自动生成 config_id
+        new_status = request_data.get("status")
+        status_lower = new_status.lower() if isinstance(new_status, str) else ""
+        if status_lower in ("done", "released"):
+            incoming_config_data = request_data.get("configData") or {}
+            existing_config_data = request.get("config_data") or {}
+            general_data = {}
+
+            if isinstance(existing_config_data, dict):
+                general_data.update(existing_config_data.get("general") or {})
+            if isinstance(incoming_config_data, dict):
+                general_data.update(incoming_config_data.get("general") or {})
+
+            customer_id = request_data.get("rakId") or request.get("rak_id") or ""
+            pid = general_data.get("pid") or ""
+            barcode = general_data.get("barcode") or ""
+            order_id = general_data.get("orderId") or ""
+
+            update_data["config_id"] = build_config_id(
+                customer_id=customer_id,
+                request_id=request_id,
+                pid=pid,
+                barcode=barcode,
+                order_id=order_id,
+                status_value=new_status,
+            )
         
         # 检查是否有需要更新的字段或需要删除的字段
         if not update_data and not remove_fields:

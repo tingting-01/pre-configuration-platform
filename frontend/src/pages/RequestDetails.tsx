@@ -1346,7 +1346,7 @@ const RequestDetails = () => {
       rows.push({ section: 'Request Information', path: 'Company Name', value: String(requestInfo.companyName) })
     }
     if (requestInfo.rakId) {
-      rows.push({ section: 'Request Information', path: 'RAK ID', value: String(requestInfo.rakId) })
+      rows.push({ section: 'Request Information', path: 'Customer Email', value: String(requestInfo.rakId) })
     }
     if (requestInfo.submitTime) {
       rows.push({ section: 'Request Information', path: 'Submit Time', value: String(requestInfo.submitTime) })
@@ -1485,31 +1485,18 @@ const RequestDetails = () => {
     }
   }
 
-  // 检查是否启用了WisDM Provisioning
-  const isWisDMEnabled = config?.system?.wisdmConnect === true
-
-  // 工作流阶段定义（根据WisDM Provisioning状态动态过滤）
+  // 工作流阶段定义（WisDM Provisioning步骤已移除）
   const baseWorkflowStages = [
-    { id: 'new_request', label: 'Open' },
-    { id: 'pre_config_creating', label: 'Pre-configuration file creating' },
-    { id: 'check_document', label: 'Pre-configuration file testing' },
-    { id: 'add_gateways', label: 'WisDM Provisioning' },
-    { id: 'done', label: 'Done' }
+    { id: 'new_request', label: 'CREATED' },
+    { id: 'pre_config_creating', label: 'READY' },
+    { id: 'check_document', label: 'VALIDATED' },
+    { id: 'done', label: 'RELEASED' }
   ]
-
-  // 如果WisDM未启用，过滤掉add-gateways步骤
-  const workflowStages = isWisDMEnabled 
-    ? baseWorkflowStages 
-    : baseWorkflowStages.filter(stage => stage.id !== 'add_gateways')
+  const workflowStages = baseWorkflowStages
 
   // 根据当前状态确定当前阶段
   const getCurrentStage = (status: string): string => {
     const statusLower = status?.toLowerCase() || ''
-    
-    // 如果WisDM未启用，且状态是WisDM Provisioning，应该映射到done阶段
-    if (!isWisDMEnabled && statusLower === 'wisdm provisioning') {
-      return 'done'
-    }
     
     switch (statusLower) {
       case 'open':
@@ -1519,7 +1506,7 @@ const RequestDetails = () => {
       case 'pre-configuration file testing':
         return 'check_document'
       case 'wisdm provisioning':
-        return isWisDMEnabled ? 'add_gateways' : 'done'
+        return 'done'
       case 'done':
         return 'done'
       default:
@@ -1528,11 +1515,7 @@ const RequestDetails = () => {
   }
 
   const currentStageId = getCurrentStage(request.status)
-  // 如果WisDM未启用且状态是WisDM Provisioning，直接映射到done阶段
-  const effectiveStageId = (!isWisDMEnabled && request.status?.toLowerCase() === 'wisdm provisioning') 
-    ? 'done' 
-    : currentStageId
-  const currentStageIndex = workflowStages.findIndex(stage => stage.id === effectiveStageId)
+  const currentStageIndex = workflowStages.findIndex(stage => stage.id === currentStageId)
 
   // 判断阶段是否完成
   const isStageCompleted = (stageIndex: number): boolean => {
@@ -1823,8 +1806,12 @@ const RequestDetails = () => {
                       <dd className="mt-1 text-sm text-gray-900">{request.companyName || ''}</dd>
                     </div>
                     <div>
-                      <dt className="text-sm font-medium text-gray-500">RAK ID</dt>
+                      <dt className="text-sm font-medium text-gray-500">Customer Email</dt>
                       <dd className="mt-1 text-sm text-gray-900">{request.rakId}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Config ID</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{request.configId || ''}</dd>
                     </div>
                     <div>
                       <dt className="text-sm font-medium text-gray-500">Submit Time</dt>
@@ -1860,6 +1847,10 @@ const RequestDetails = () => {
                       <div>
                         <dt className="text-sm font-medium text-gray-500">BarCode</dt>
                         <dd className="mt-1 text-sm text-gray-900">{displayTextValue(config.general.barcode, '') || ''}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-sm font-medium text-gray-500">Order ID</dt>
+                        <dd className="mt-1 text-sm text-gray-900">{displayTextValue(config.general.orderId, '') || ''}</dd>
                       </div>
                       <div>
                         <dt className="text-sm font-medium text-gray-500">Gateway Model</dt>

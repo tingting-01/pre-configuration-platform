@@ -247,12 +247,16 @@ const DashboardOriginal = () => {
       matchesSearch = matchesSearchConfig(r, advancedSearchConfig)
     } else if (searchQuery) {
       // 使用简单搜索
+      const pidValue = r.configData?.general?.pid || r.pid || ''
+      const barcodeValue = r.configData?.general?.barcode || r.barcode || ''
       matchesSearch = 
         r.companyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.rakId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.status?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.creatorEmail?.toLowerCase().includes(searchQuery.toLowerCase())
+        r.creatorEmail?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(pidValue).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(barcodeValue).toLowerCase().includes(searchQuery.toLowerCase())
     }
     
     // 应用标签筛选
@@ -1462,7 +1466,7 @@ const DashboardOriginal = () => {
                     fontSize: '12px',
                     fontWeight: '500',
                     color: advancedSearchConfig ? '#ffffff' : '#6b7280',
-                    display: 'flex',
+                    display: 'none',
                     alignItems: 'center',
                     gap: '4px',
                     height: '36px',
@@ -1737,6 +1741,20 @@ const DashboardOriginal = () => {
                       fontWeight: '500',
                       color: '#374151',
                       background: '#f9fafb',
+                      width: '140px',
+                      maxWidth: '140px',
+                      whiteSpace: 'nowrap',
+                      fontSize: '12px',
+                      lineHeight: '1.3'
+                    }}>
+                      Config ID
+                    </th>
+                    <th style={{
+                      padding: '6px 10px',
+                      textAlign: 'left',
+                      fontWeight: '500',
+                      color: '#374151',
+                      background: '#f9fafb',
                       width: '120px',
                       maxWidth: '120px',
                       whiteSpace: 'nowrap',
@@ -1875,6 +1893,41 @@ const DashboardOriginal = () => {
                       >
                         {request.configData?.general?.barcode || '-'}
                       </td>
+                      <td
+                        style={{
+                          padding: '4px 10px',
+                          color: '#1f2937',
+                          fontSize: '11px',
+                          maxWidth: '140px',
+                          overflow: 'hidden'
+                        }}
+                        title={request.configId || '-'}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <div style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            background: request.configId ? '#2563eb' : '#9ca3af',
+                            flexShrink: 0
+                          }}></div>
+                          <span style={{
+                            fontSize: '12px',
+                            color: request.configId ? '#2563eb' : '#9ca3af',
+                            background: request.configId ? '#eff6ff' : '#f3f4f6',
+                            padding: '1px 4px',
+                            borderRadius: '3px',
+                            fontWeight: '400',
+                            lineHeight: '1.3',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0
+                          }}>
+                            {request.configId || '-'}
+                          </span>
+                        </div>
+                      </td>
                       <td 
                         style={{ 
                           padding: '4px 10px', 
@@ -1998,14 +2051,10 @@ const DashboardOriginal = () => {
                                 lineHeight: '1.3'
                               }}
                             >
-                              <option value="Open">Open</option>
-                              <option value="Pre-configuration file creating">Pre-configuration file creating</option>
-                              <option value="Pre-configuration file testing">Pre-configuration file testing</option>
-                              {/* 只有当WisDM启用时才显示WisDM Provisioning选项，但如果当前状态已经是这个状态，则始终显示 */}
-                              {(isWisDMEnabledForRequest(request) || request.status === 'WisDM Provisioning' || request.status === 'add-gateways-to-organization') && (
-                                <option value="WisDM Provisioning">WisDM Provisioning</option>
-                              )}
-                              <option value="Done">Done</option>
+                              <option value="Open">CREATED</option>
+                              <option value="Pre-configuration file creating">READY</option>
+                              <option value="Pre-configuration file testing">VALIDATED</option>
+                              <option value="Done">RELEASED</option>
                             </select>
                             {updatingStatus.has(request.id) && (
                               <div style={{

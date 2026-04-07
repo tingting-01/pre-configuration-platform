@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Any, Optional, List
 import hashlib
 import jwt
 from dynamodb_client import db_client
@@ -763,61 +763,109 @@ async def get_users(current_user: dict = Depends(get_current_user)):
         print(f"❌ Error in get_users: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+def _general_section_from_config(raw: dict) -> dict:
+    """从 config_data 根上取出 general（兼容大小写、历史字段名）。"""
+    if not isinstance(raw, dict):
+        return {}
+    gen = raw.get('general')
+    if isinstance(gen, dict):
+        return gen
+    for k, v in raw.items():
+        if isinstance(k, str) and k.lower() == 'general' and isinstance(v, dict):
+            return v
+    return {}
+
+
+def _first_map_value(gen: dict, candidates: tuple) -> Any:
+    for key in candidates:
+        if key in gen:
+            return gen[key]
+    return None
+
+
+def _slim_config_data_for_request_list(req: dict) -> dict:
+    """列表接口只返回 general 中与表格相关的键，减小 payload。"""
+    raw = req.get('config_data') or {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    gen = _general_section_from_config(raw)
+    pid = _first_map_value(
+        gen,
+        ('pid', 'PID', 'productId', 'ProductID', 'product_id'),
+    )
+    barcode = _first_map_value(
+        gen,
+        ('barcode', 'BarCode', 'barCode', 'Barcode', 'bar_code'),
+    )
+    order_id = _first_map_value(
+        gen,
+        ('orderId', 'order_id', 'OrderID', 'OrderId'),
+    )
+    customization_id = _first_map_value(
+        gen,
+        ('customizationId', 'customisationId', 'CustomizationID', 'customization_id'),
+    )
+    priority = _first_map_value(gen, ('priority', 'Priority'))
+    return {
+        'general': {
+            'pid': pid,
+            'barcode': barcode,
+            'orderId': order_id,
+            'customizationId': customization_id,
+            'priority': priority,
+        }
+    }
+
+
+def _get_requests_list_payload_sync(current_user: dict) -> List[dict]:
+    """同步构建请求列表；由 get_requests 通过 asyncio.to_thread 调用，避免阻塞事件循环。"""
+    user_role = current_user.get('role') or get_user_role(current_user.get('email', ''))
+    if can_view_all(user_role):
+        all_requests = db_client.scan_requests_for_list()
+    else:
+        all_requests = db_client.query_requests_by_user_for_list(current_user['id'])
+
+    user_ids = list(set(req.get('user_id') for req in all_requests if req.get('user_id')))
+    users_dict = db_client.get_users_by_ids(user_ids) if user_ids else {}
+
+    requests: List[dict] = []
+    for req in all_requests:
+        creator_email = None
+        user_id = req.get('user_id')
+        if user_id:
+            creator = users_dict.get(user_id)
+            creator_email = creator.get('email') if creator else None
+
+        requests.append({
+            "id": req.get('request_id'),
+            "companyName": req.get('company_name'),
+            "rakId": req.get('rak_id'),
+            "configId": req.get('config_id'),
+            "submitTime": req.get('submit_time'),
+            "status": req.get('status', 'Open'),
+            "assignee": req.get('assignee', ''),
+            "configData": _slim_config_data_for_request_list(req),
+            "changes": {},
+            "originalConfig": {},
+            "tags": req.get('tags', []),
+            "creatorEmail": creator_email
+        })
+
+    requests.sort(key=lambda x: x.get('submitTime', ''), reverse=True)
+    return requests
+
+
 @app.get("/api/requests")
 async def get_requests(current_user: dict = Depends(get_current_user)):
     """获取所有请求 - 根据用户权限过滤"""
-    print(f"=== GET /api/requests ===")
-    print(f"Current user: {current_user}")
-    print(f"Is RAK Wireless user: {current_user.get('is_rakwireless', False)}")
-    
     try:
-        # 根据用户权限构建查询
-        # rakwireless 和 admin 用户可以看到所有请求，其他用户只能看到自己创建的请求
-        user_role = current_user.get('role') or get_user_role(current_user.get('email', ''))
-        if can_view_all(user_role):
-            # RAK Wireless用户：显示所有请求
-            print("✅ RAK Wireless user - showing all requests")
-            all_requests = db_client.scan_all_requests()
-        else:
-            # 非RAK Wireless用户：只显示自己创建的请求
-            print(f"✅ External user - showing only own requests (user_id={current_user['id']})")
-            all_requests = db_client.query_requests_by_user(current_user['id'])
-        
-        # 批量获取用户信息（优化：避免 N+1 查询）
-        user_ids = list(set(req.get('user_id') for req in all_requests if req.get('user_id')))
-        users_dict = db_client.get_users_by_ids(user_ids) if user_ids else {}
-        
-        requests = []
-        for req in all_requests:
-            # 获取创建者邮箱
-            creator_email = None
-            user_id = req.get('user_id')
-            if user_id:
-                creator = users_dict.get(user_id)
-                creator_email = creator.get('email') if creator else None
-            
-            requests.append({
-                "id": req.get('request_id'),
-                "companyName": req.get('company_name'),
-                "rakId": req.get('rak_id'),
-                "configId": req.get('config_id'),
-                "submitTime": req.get('submit_time'),
-                "status": req.get('status', 'Open'),
-                "assignee": req.get('assignee', ''),
-                "configData": req.get('config_data', {}),
-                "changes": req.get('changes', {}),
-                "originalConfig": req.get('original_config', {}),
-                "tags": req.get('tags', []),
-                "creatorEmail": creator_email
-            })
-        
-        # 按创建时间降序排序
-        requests.sort(key=lambda x: x.get('submitTime', ''), reverse=True)
-        
-        print(f"Found {len(requests)} requests")
-        for req in requests:
-            print(f"Request {req['id']}: creator_email = {req.get('creatorEmail', 'NOT_FOUND')}")
-        return requests
+        return await asyncio.to_thread(_get_requests_list_payload_sync, current_user)
     except Exception as e:
         print(f"❌ Error in get_requests: {e}")
         print(f"Error type: {type(e)}")

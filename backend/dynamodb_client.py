@@ -10,6 +10,7 @@ import os
 from decimal import Decimal
 from datetime import datetime
 from dotenv import load_dotenv
+from boto3.dynamodb.conditions import Attr
 
 # 加载 .env 文件（如果存在）
 load_dotenv()
@@ -201,17 +202,53 @@ class DynamoDBClient:
             return []
     
     def get_users_by_ids(self, user_ids: List[int]) -> dict:
-        """批量通过 id 获取用户（返回 {user_id: user_dict} 字典）"""
+        """批量通过 id 获取用户（返回 {user_id: user_dict} 字典）。
+        users 表主键为 email，无 user_id GSI：使用单次 Scan + 最小投影 + FilterExpression（或内存过滤），
+        避免每次拉全表全字段。
+        """
         try:
-            # 先获取所有用户（如果用户数量不多，这样更高效）
-            # 如果用户数量很多，可以考虑使用 BatchGetItem，但需要先知道 email
-            all_users = self.get_all_users()
-            user_dict = {}
-            for user in all_users:
-                user_id = user.get('id')
-                if user_id in user_ids:
-                    user_dict[user_id] = user
-            return user_dict
+            uid_set = {int(x) for x in user_ids if x is not None}
+            if not uid_set:
+                return {}
+
+            proj_names = {'#i': 'id', '#e': 'email', '#n': 'name'}
+            proj_expr = '#i, #e, #n'
+            base_kw: dict = {
+                'ProjectionExpression': proj_expr,
+                'ExpressionAttributeNames': proj_names,
+            }
+            # IN 过长时拆成 OR 链，仍保持单次 Scan（避免多次全表 Scan）
+            uid_list = list(uid_set)
+            chunk_size = 90
+            if len(uid_list) <= chunk_size:
+                base_kw['FilterExpression'] = Attr('id').is_in(uid_list)
+            else:
+                parts = []
+                for i in range(0, len(uid_list), chunk_size):
+                    chunk = uid_list[i : i + chunk_size]
+                    parts.append(Attr('id').is_in(chunk))
+                combined = parts[0]
+                for p in parts[1:]:
+                    combined = combined | p
+                base_kw['FilterExpression'] = combined
+
+            result: dict = {}
+            response = self.tables['users'].scan(**base_kw)
+            for item in response.get('Items', []):
+                u = convert_from_dynamodb_item(item)
+                uid = u.get('id')
+                if uid is not None and uid in uid_set:
+                    result[uid] = u
+            while 'LastEvaluatedKey' in response:
+                response = self.tables['users'].scan(
+                    ExclusiveStartKey=response['LastEvaluatedKey'], **base_kw
+                )
+                for item in response.get('Items', []):
+                    u = convert_from_dynamodb_item(item)
+                    uid = u.get('id')
+                    if uid is not None and uid in uid_set:
+                        result[uid] = u
+            return result
         except Exception as e:
             print(f"Error getting users by ids: {e}")
             return {}
@@ -374,6 +411,67 @@ class DynamoDBClient:
         except ClientError as e:
             print(f"Error scanning all requests: {e}")
             return []
+
+    def _requests_list_projection_kwargs(self) -> dict:
+        """列表接口投影：拉取完整 config_data（兼容 Map / JSON 字符串），仍不读 changes、original_config 等大字段。"""
+        return {
+            'ProjectionExpression': (
+                '#rid, #uid, #cn, #rk, #cfgid, #stt, #st, #as, #tg, #cd'
+            ),
+            'ExpressionAttributeNames': {
+                '#rid': 'request_id',
+                '#uid': 'user_id',
+                '#cn': 'company_name',
+                '#rk': 'rak_id',
+                '#cfgid': 'config_id',
+                '#stt': 'submit_time',
+                '#st': 'status',
+                '#as': 'assignee',
+                '#tg': 'tags',
+                '#cd': 'config_data',
+            },
+        }
+
+    def scan_requests_for_list(self) -> List[dict]:
+        """全表列表用 Scan + 投影；若投影失败（如 config_data 存成字符串）则回退全量 Scan。"""
+        proj = self._requests_list_projection_kwargs()
+        try:
+            items: List[dict] = []
+            response = self.tables['requests'].scan(**proj)
+            items.extend(response.get('Items', []))
+            while 'LastEvaluatedKey' in response:
+                response = self.tables['requests'].scan(
+                    ExclusiveStartKey=response['LastEvaluatedKey'], **proj
+                )
+                items.extend(response.get('Items', []))
+            return [convert_from_dynamodb_item(item) for item in items]
+        except ClientError as e:
+            print(f"scan_requests_for_list projection failed, fallback scan_all: {e}")
+            return self.scan_all_requests()
+
+    def query_requests_by_user_for_list(self, user_id: int) -> List[dict]:
+        """按用户列表 Query + 投影；失败则回退为 query_requests_by_user。"""
+        proj = self._requests_list_projection_kwargs()
+        qbase = {
+            'IndexName': 'user_id-index',
+            'KeyConditionExpression': 'user_id = :uid',
+            'ExpressionAttributeValues': {':uid': user_id},
+            'ScanIndexForward': False,
+            **proj,
+        }
+        try:
+            items: List[dict] = []
+            response = self.tables['requests'].query(**qbase)
+            items.extend(response.get('Items', []))
+            while 'LastEvaluatedKey' in response:
+                response = self.tables['requests'].query(
+                    ExclusiveStartKey=response['LastEvaluatedKey'], **qbase
+                )
+                items.extend(response.get('Items', []))
+            return [convert_from_dynamodb_item(item) for item in items]
+        except ClientError as e:
+            print(f"query_requests_by_user_for_list projection failed, fallback: {e}")
+            return self.query_requests_by_user(user_id)
     
     def batch_delete_requests(self, request_ids: List[str]) -> int:
         """批量删除请求"""

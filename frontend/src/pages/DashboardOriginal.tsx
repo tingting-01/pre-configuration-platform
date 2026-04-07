@@ -249,6 +249,8 @@ const DashboardOriginal = () => {
       // 使用简单搜索
       const pidValue = r.configData?.general?.pid || r.pid || ''
       const barcodeValue = r.configData?.general?.barcode || r.barcode || ''
+      const configIdValue = r.configId || ''
+      const customizationIdValue = r.configData?.general?.customizationId || ''
       matchesSearch = 
         r.companyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.rakId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -256,7 +258,9 @@ const DashboardOriginal = () => {
         r.status?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.creatorEmail?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(pidValue).toLowerCase().includes(searchQuery.toLowerCase()) ||
-        String(barcodeValue).toLowerCase().includes(searchQuery.toLowerCase())
+        String(barcodeValue).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(configIdValue).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(customizationIdValue).toLowerCase().includes(searchQuery.toLowerCase())
     }
     
     // 应用标签筛选
@@ -1761,7 +1765,7 @@ const DashboardOriginal = () => {
                       fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
-                      Creator
+                      Customization ID
                     </th>
                     <th style={{
                       padding: '6px 10px',
@@ -1817,6 +1821,20 @@ const DashboardOriginal = () => {
                       lineHeight: '1.3'
                     }}>
                       Assignee
+                    </th>
+                    <th style={{
+                      padding: '6px 10px',
+                      textAlign: 'left',
+                      fontWeight: '500',
+                      color: '#374151',
+                      background: '#f9fafb',
+                      width: '120px',
+                      maxWidth: '120px',
+                      whiteSpace: 'nowrap',
+                      fontSize: '12px',
+                      lineHeight: '1.3'
+                    }}>
+                      Creator
                     </th>
                     <th style={{
                       padding: '6px 10px',
@@ -1928,38 +1946,38 @@ const DashboardOriginal = () => {
                           </span>
                         </div>
                       </td>
-                      <td 
-                        style={{ 
-                          padding: '4px 10px', 
-                          color: '#1f2937', 
+                      <td
+                        style={{
+                          padding: '4px 10px',
+                          color: '#1f2937',
                           fontSize: '11px',
                           maxWidth: '120px',
                           overflow: 'hidden'
                         }}
-                        title={request.creatorEmail === user?.email ? 'You' : request.creatorEmail || 'Unknown'}
+                        title={request.configData?.general?.customizationId || '-'}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <div style={{
                             width: '8px',
                             height: '8px',
                             borderRadius: '50%',
-                            background: request.creatorEmail === user?.email ? '#10b981' : '#6b7280',
+                            background: request.configData?.general?.customizationId ? '#0ea5e9' : '#9ca3af',
                             flexShrink: 0
                           }}></div>
                           <span style={{
                             fontSize: '12px',
-                            color: request.creatorEmail === user?.email ? '#10b981' : '#6b7280',
-                            background: request.creatorEmail === user?.email ? '#ecfdf5' : '#f3f4f6',
+                            color: request.configData?.general?.customizationId ? '#0369a1' : '#9ca3af',
+                            background: request.configData?.general?.customizationId ? '#f0f9ff' : '#f3f4f6',
                             padding: '1px 4px',
                             borderRadius: '3px',
-                            fontWeight: request.creatorEmail === user?.email ? '500' : '400',
+                            fontWeight: '400',
                             lineHeight: '1.3',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
                             minWidth: 0
                           }}>
-                            {request.creatorEmail === user?.email ? 'You' : request.creatorEmail || 'Unknown'}
+                            {request.configData?.general?.customizationId || '-'}
                           </span>
                         </div>
                       </td>
@@ -2223,8 +2241,47 @@ const DashboardOriginal = () => {
                           )}
                         </div>
                       </td>
+                      <td 
+                        style={{ 
+                          padding: '4px 10px', 
+                          color: '#1f2937', 
+                          fontSize: '11px',
+                          maxWidth: '120px',
+                          overflow: 'hidden'
+                        }}
+                        title={request.creatorEmail === user?.email ? 'You' : request.creatorEmail || 'Unknown'}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <div style={{
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            background: request.creatorEmail === user?.email ? '#10b981' : '#6b7280',
+                            flexShrink: 0
+                          }}></div>
+                          <span style={{
+                            fontSize: '12px',
+                            color: request.creatorEmail === user?.email ? '#10b981' : '#6b7280',
+                            background: request.creatorEmail === user?.email ? '#ecfdf5' : '#f3f4f6',
+                            padding: '1px 4px',
+                            borderRadius: '3px',
+                            fontWeight: request.creatorEmail === user?.email ? '500' : '400',
+                            lineHeight: '1.3',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0
+                          }}>
+                            {request.creatorEmail === user?.email ? 'You' : request.creatorEmail || 'Unknown'}
+                          </span>
+                        </div>
+                      </td>
                       <td style={{ padding: '4px 10px' }}>
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          {(() => {
+                            const isReleased = ['done', 'released'].includes((request.status || '').toLowerCase())
+                            return (
+                              <>
                           <button
                             onClick={() => handleViewDetails(request.id)}
                             style={{
@@ -2247,21 +2304,27 @@ const DashboardOriginal = () => {
                           {(request.creatorEmail === user?.email || 
                             user?.role === 'admin') ? (
                             <button
-                              onClick={() => navigate(`/configuration?edit=${request.id}`)}
+                              onClick={() => {
+                                if (!isReleased) {
+                                  navigate(`/configuration?edit=${request.id}`)
+                                }
+                              }}
+                              disabled={isReleased}
                               style={{
                                 padding: '2px 8px',
-                                background: '#10b981',
-                                color: '#ffffff',
+                                background: isReleased ? '#f3f4f6' : '#10b981',
+                                color: isReleased ? '#9ca3af' : '#ffffff',
                                 border: 'none',
                                 borderRadius: '0.375rem',
                                 fontSize: '12px',
                                 fontWeight: '500',
-                                cursor: 'pointer',
+                                cursor: isReleased ? 'not-allowed' : 'pointer',
                                 transition: 'all 0.2s ease',
                                 lineHeight: '1.3',
                                 minWidth: '40px',
                                 height: '24px'
                               }}
+                              title={isReleased ? 'Released requests cannot be edited' : 'Edit request'}
                             >
                               Edit
                             </button>
@@ -2286,6 +2349,9 @@ const DashboardOriginal = () => {
                               Edit
                             </button>
                           )}
+                              </>
+                            )
+                          })()}
                         </div>
                       </td>
                     </tr>

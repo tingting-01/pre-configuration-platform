@@ -2,6 +2,8 @@ import json
 import uuid
 import os
 import shutil
+import asyncio
+import threading
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,9 @@ from typing import Optional, List
 import hashlib
 import jwt
 from dynamodb_client import db_client
+from urllib import request as urllib_request
+from urllib import parse as urllib_parse
+from urllib.error import HTTPError, URLError
 
 app = FastAPI(title="Auth Prototype API", version="1.0.0")
 
@@ -187,6 +192,323 @@ def build_config_id(customer_id: str, request_id: str, pid: str, barcode: str, o
     """按约定顺序生成 config_id。"""
     parts = [customer_id or "", request_id or "", pid or "", barcode or "", order_id or "", status_value or ""]
     return "_".join(str(part).strip() for part in parts)
+
+
+# ===== 外部系统同步（bind_config）配置与逻辑 =====
+# 取 token：可与 bind 不同 API Gateway；兼容旧变量 EXTERNAL_API_BASE
+EXTERNAL_AUTH_API_BASE = os.getenv(
+    "EXTERNAL_AUTH_API_BASE",
+    os.getenv("EXTERNAL_API_BASE", "https://x9sz8zg9kf.execute-api.eu-central-1.amazonaws.com/prod"),
+)
+# 绑定 config（外部正式提供的端点所在网关）
+EXTERNAL_BIND_API_BASE = os.getenv(
+    "EXTERNAL_BIND_API_BASE",
+    "https://0xw5pzyzsa.execute-api.eu-central-1.amazonaws.com/prod",
+)
+EXTERNAL_BIND_PATH = os.getenv("EXTERNAL_BIND_PATH", "/v1/cust_req/bind_config")
+EXTERNAL_AUTH_PATH = os.getenv("EXTERNAL_AUTH_PATH", "/v1/auth")
+EXTERNAL_SERVICE_USERNAME = os.getenv("EXTERNAL_SERVICE_USERNAME", "")
+EXTERNAL_SERVICE_PASSWORD = os.getenv("EXTERNAL_SERVICE_PASSWORD", "")
+
+# 同步重试策略
+EXTERNAL_SYNC_MAX_ATTEMPTS = int(os.getenv("EXTERNAL_SYNC_MAX_ATTEMPTS", "10"))
+EXTERNAL_SYNC_MIN_RETRY_SECONDS = int(os.getenv("EXTERNAL_SYNC_MIN_RETRY_SECONDS", "60"))
+EXTERNAL_SYNC_LOOP_SECONDS = int(os.getenv("EXTERNAL_SYNC_LOOP_SECONDS", "60"))
+EXTERNAL_SYNC_HTTP_TIMEOUT = int(os.getenv("EXTERNAL_SYNC_HTTP_TIMEOUT", "20"))
+
+# 内存 token 缓存（24h 有效期，取 23h 作为安全刷新窗口）
+_external_token_lock = threading.Lock()
+_external_token_cache: dict = {"token": None, "fetched_at": None}
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow().replace(microsecond=0)
+
+
+def _parse_iso_datetime(value: str) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        # 支持 "2026-03-27T10:53:59" 这类格式
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _compute_next_retry_at(attempts: int, retry_after_seconds: Optional[int] = None) -> str:
+    # 最小 60s；指数退避：60, 120, 240, 480... 上限 3600s
+    backoff = min(3600, EXTERNAL_SYNC_MIN_RETRY_SECONDS * (2 ** max(0, attempts - 1)))
+    if retry_after_seconds is not None:
+        backoff = max(backoff, int(retry_after_seconds))
+    return (_utcnow() + timedelta(seconds=backoff)).isoformat()
+
+
+def _http_json(method: str, url: str, headers: dict, body: Optional[dict] = None) -> tuple[int, str, Optional[dict], dict]:
+    """
+    返回: (http_status, raw_text, json_obj_or_none, response_headers)
+    """
+    data_bytes = None
+    if body is not None:
+        data_bytes = json.dumps(body).encode("utf-8")
+        headers = {**headers, "Content-Type": "application/json"}
+    req = urllib_request.Request(url=url, data=data_bytes, method=method, headers=headers)
+    try:
+        with urllib_request.urlopen(req, timeout=EXTERNAL_SYNC_HTTP_TIMEOUT) as resp:
+            status_code = getattr(resp, "status", resp.getcode())
+            resp_headers = dict(resp.headers.items())
+            raw = resp.read().decode("utf-8") if status_code != 204 else ""
+            try:
+                obj = json.loads(raw) if raw else None
+            except Exception:
+                obj = None
+            return status_code, raw, obj, resp_headers
+    except HTTPError as e:
+        status_code = e.code
+        resp_headers = dict(e.headers.items()) if e.headers else {}
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8")
+        except Exception:
+            raw = ""
+        try:
+            obj = json.loads(raw) if raw else None
+        except Exception:
+            obj = None
+        return status_code, raw, obj, resp_headers
+    except (URLError, TimeoutError) as e:
+        # 网络/超时
+        return 0, str(e), None, {}
+
+
+def _external_get_token(force_refresh: bool = False) -> Optional[str]:
+    if not EXTERNAL_SERVICE_USERNAME or not EXTERNAL_SERVICE_PASSWORD:
+        return None
+
+    with _external_token_lock:
+        token = _external_token_cache.get("token")
+        fetched_at = _external_token_cache.get("fetched_at")
+        if not force_refresh and token and fetched_at:
+            age = _utcnow() - fetched_at
+            # 24h 有效期，23h 刷新
+            if age < timedelta(hours=23):
+                return token
+
+        url = f"{EXTERNAL_AUTH_API_BASE}{EXTERNAL_AUTH_PATH}"
+        status_code, raw, obj, _ = _http_json(
+            method="POST",
+            url=url,
+            headers={},
+            body={"username": EXTERNAL_SERVICE_USERNAME, "password": EXTERNAL_SERVICE_PASSWORD},
+        )
+        if status_code == 200 and isinstance(obj, dict) and obj.get("success") is True and obj.get("token"):
+            token = str(obj["token"])
+            _external_token_cache["token"] = token
+            _external_token_cache["fetched_at"] = _utcnow()
+            return token
+
+        # 获取 token 失败，清空缓存
+        _external_token_cache["token"] = None
+        _external_token_cache["fetched_at"] = None
+        return None
+
+
+def _external_bind_config(config_id: str, customization_id: str) -> dict:
+    """
+    调用外部 POST /v1/cust_req/bind_config
+    返回结构:
+    {
+      ok: bool,
+      http_status: int,
+      retryable: bool,
+      next_retry_after: Optional[int],
+      error_code: Optional[str],
+      message: str
+    }
+    """
+    token = _external_get_token(force_refresh=False)
+    if not token:
+        return {
+            "ok": False,
+            "http_status": 0,
+            "retryable": True,
+            "next_retry_after": EXTERNAL_SYNC_MIN_RETRY_SECONDS,
+            "error_code": "NO_TOKEN",
+            "message": "No external token available (missing creds or auth failed)",
+        }
+
+    query = urllib_parse.urlencode({"username": EXTERNAL_SERVICE_USERNAME, "token": token})
+    url = f"{EXTERNAL_BIND_API_BASE}{EXTERNAL_BIND_PATH}?{query}"
+    headers = {"Authorization": f"Bearer {token}"}
+    body = {"config_id": config_id, "customization_id": customization_id}
+
+    status_code, raw, obj, resp_headers = _http_json(method="POST", url=url, headers=headers, body=body)
+
+    # 成功：200 且 success=true，或 204
+    if status_code == 204:
+        return {"ok": True, "http_status": 204, "retryable": False, "next_retry_after": None, "error_code": None, "message": "No Content"}
+    if status_code == 200 and isinstance(obj, dict) and obj.get("success") is True:
+        return {"ok": True, "http_status": 200, "retryable": False, "next_retry_after": None, "error_code": None, "message": str(obj.get("message", ""))}
+
+    # 401：先刷新 token 再重试一次
+    if status_code == 401:
+        refreshed = _external_get_token(force_refresh=True)
+        if refreshed:
+            query = urllib_parse.urlencode({"username": EXTERNAL_SERVICE_USERNAME, "token": refreshed})
+            url = f"{EXTERNAL_BIND_API_BASE}{EXTERNAL_BIND_PATH}?{query}"
+            headers = {"Authorization": f"Bearer {refreshed}"}
+            status_code2, raw2, obj2, resp_headers2 = _http_json(method="POST", url=url, headers=headers, body=body)
+            if status_code2 == 204:
+                return {"ok": True, "http_status": 204, "retryable": False, "next_retry_after": None, "error_code": None, "message": "No Content"}
+            if status_code2 == 200 and isinstance(obj2, dict) and obj2.get("success") is True:
+                return {"ok": True, "http_status": 200, "retryable": False, "next_retry_after": None, "error_code": None, "message": str(obj2.get("message", ""))}
+            # 刷新后仍失败，视为不可自动恢复
+            code = obj2.get("error_code") if isinstance(obj2, dict) else None
+            msg = obj2.get("message") if isinstance(obj2, dict) else (raw2 or "Unauthorized after refresh")
+            return {"ok": False, "http_status": status_code2, "retryable": False, "next_retry_after": None, "error_code": code or "UNAUTHORIZED", "message": str(msg)}
+
+        return {"ok": False, "http_status": 401, "retryable": False, "next_retry_after": None, "error_code": "UNAUTHORIZED", "message": "Unauthorized and token refresh failed"}
+
+    # 403：不重试
+    if status_code == 403:
+        code = obj.get("error_code") if isinstance(obj, dict) else None
+        msg = obj.get("message") if isinstance(obj, dict) else (raw or "Forbidden")
+        return {"ok": False, "http_status": 403, "retryable": False, "next_retry_after": None, "error_code": code or "FORBIDDEN", "message": str(msg)}
+
+    # 400：不重试
+    if status_code == 400:
+        code = obj.get("error_code") if isinstance(obj, dict) else None
+        msg = obj.get("message") if isinstance(obj, dict) else (raw or "Bad Request")
+        return {"ok": False, "http_status": 400, "retryable": False, "next_retry_after": None, "error_code": code or "BAD_REQUEST", "message": str(msg)}
+
+    # 404：不重试（或最多重试一次：由上层 attempts 控制）
+    if status_code == 404:
+        code = obj.get("error_code") if isinstance(obj, dict) else None
+        msg = obj.get("message") if isinstance(obj, dict) else (raw or "Not Found")
+        return {"ok": False, "http_status": 404, "retryable": False, "next_retry_after": None, "error_code": code or "INVALID_CUSTOMIZATION_ID", "message": str(msg)}
+
+    # 409：不重试
+    if status_code == 409:
+        code = obj.get("error_code") if isinstance(obj, dict) else None
+        msg = obj.get("message") if isinstance(obj, dict) else (raw or "Conflict")
+        return {"ok": False, "http_status": 409, "retryable": False, "next_retry_after": None, "error_code": code or "CONFIG_ID_CONFLICT", "message": str(msg)}
+
+    # 429：重试，遵循 Retry-After（秒）
+    if status_code == 429:
+        retry_after = resp_headers.get("Retry-After") or resp_headers.get("retry-after")
+        retry_after_seconds = int(retry_after) if retry_after and str(retry_after).isdigit() else EXTERNAL_SYNC_MIN_RETRY_SECONDS
+        code = obj.get("error_code") if isinstance(obj, dict) else None
+        msg = obj.get("message") if isinstance(obj, dict) else (raw or "Rate limited")
+        return {"ok": False, "http_status": 429, "retryable": True, "next_retry_after": retry_after_seconds, "error_code": code or "RATE_LIMITED", "message": str(msg)}
+
+    # 5xx / 网络错误：重试
+    if status_code == 0 or status_code >= 500:
+        msg = obj.get("message") if isinstance(obj, dict) else (raw or "Server error")
+        return {"ok": False, "http_status": status_code, "retryable": True, "next_retry_after": EXTERNAL_SYNC_MIN_RETRY_SECONDS, "error_code": None, "message": str(msg)}
+
+    # 其他 4xx：默认不重试
+    msg = obj.get("message") if isinstance(obj, dict) else (raw or f"HTTP {status_code}")
+    code = obj.get("error_code") if isinstance(obj, dict) else None
+    return {"ok": False, "http_status": status_code, "retryable": False, "next_retry_after": None, "error_code": code, "message": str(msg)}
+
+
+def _extract_customization_id(request_item: dict, incoming_config_data: Optional[dict] = None) -> str:
+    existing_config = request_item.get("config_data") or {}
+    general = {}
+    if isinstance(existing_config, dict):
+        general.update(existing_config.get("general") or {})
+    if incoming_config_data and isinstance(incoming_config_data, dict):
+        general.update(incoming_config_data.get("general") or {})
+    return str(general.get("customizationId") or "").strip()
+
+
+async def external_sync_retry_loop():
+    """轻量后台重试循环：扫描失败记录并重试。"""
+    # 若未配置外部服务账号，直接不启用循环
+    if not EXTERNAL_SERVICE_USERNAME or not EXTERNAL_SERVICE_PASSWORD:
+        print("⚠️ External sync retry loop disabled (missing EXTERNAL_SERVICE_USERNAME/EXTERNAL_SERVICE_PASSWORD)")
+        return
+
+    print(f"✅ External sync retry loop started (interval={EXTERNAL_SYNC_LOOP_SECONDS}s)")
+    while True:
+        try:
+            all_requests = db_client.scan_all_requests()
+            now = _utcnow()
+            for req in all_requests or []:
+                status_value = str(req.get("external_sync_status") or "").lower()
+                if status_value not in ("failed", "pending"):
+                    continue
+                attempts = int(req.get("external_sync_attempts") or 0)
+                if attempts >= EXTERNAL_SYNC_MAX_ATTEMPTS:
+                    continue
+                next_retry_at = _parse_iso_datetime(req.get("external_sync_next_retry_at") or "")
+                if next_retry_at and next_retry_at > now:
+                    continue
+
+                request_id = req.get("request_id")
+                config_id = req.get("config_id") or ""
+                customization_id = _extract_customization_id(req)
+                if not request_id or not config_id or not customization_id:
+                    # 数据不完整：标记永久失败
+                    db_client.update_request(
+                        request_id,
+                        {
+                            "external_sync_status": "permanent_failed",
+                            "external_sync_last_error": "Missing request_id/config_id/customization_id",
+                            "external_sync_last_http_status": 0,
+                            "external_sync_attempts": attempts,
+                            "external_sync_next_retry_at": "",
+                        },
+                    )
+                    continue
+
+                result = _external_bind_config(config_id=config_id, customization_id=customization_id)
+
+                if result["ok"]:
+                    db_client.update_request(
+                        request_id,
+                        {
+                            "external_sync_status": "success",
+                            "external_sync_last_error": "",
+                            "external_sync_last_http_status": int(result["http_status"] or 0),
+                            "external_sync_attempts": attempts,
+                            "external_sync_next_retry_at": "",
+                        },
+                    )
+                else:
+                    # 404：不重试（或最多 1 次）
+                    http_status = int(result["http_status"] or 0)
+                    retryable = bool(result.get("retryable", False))
+                    if http_status == 404 and attempts >= 1:
+                        retryable = False
+
+                    new_attempts = attempts + 1
+                    if retryable and new_attempts < EXTERNAL_SYNC_MAX_ATTEMPTS:
+                        next_retry_at_str = _compute_next_retry_at(new_attempts, result.get("next_retry_after"))
+                        new_status = "failed"
+                    else:
+                        next_retry_at_str = ""
+                        new_status = "permanent_failed"
+
+                    db_client.update_request(
+                        request_id,
+                        {
+                            "external_sync_status": new_status,
+                            "external_sync_last_error": str(result.get("message") or ""),
+                            "external_sync_last_http_status": http_status,
+                            "external_sync_attempts": new_attempts,
+                            "external_sync_next_retry_at": next_retry_at_str,
+                        },
+                    )
+        except Exception as e:
+            print(f"❌ External sync retry loop error: {e}")
+
+        await asyncio.sleep(EXTERNAL_SYNC_LOOP_SECONDS)
+
+
+@app.on_event("startup")
+async def _startup_tasks():
+    # 启动后台重试循环
+    asyncio.create_task(external_sync_retry_loop())
 
 def init_database():
     """初始化 DynamoDB：确保默认 admin 用户存在"""
@@ -789,9 +1111,70 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         if not update_data and not remove_fields:
             raise HTTPException(status_code=400, detail="No fields to update")
         
-        # 执行更新
+        # 执行更新（先确保 config_id / status 已入库）
         if not db_client.update_request(request_id, update_data, remove_fields=remove_fields):
             raise HTTPException(status_code=500, detail="Failed to update request")
+
+        # 如果到达最终态，则尝试同步到外部系统；失败则落库并交由后台重试
+        if status_lower in ("done", "released"):
+            # 重新读取最新记录（包含 config_id）
+            latest = db_client.get_request(request_id) or {}
+            config_id_value = str(latest.get("config_id") or update_data.get("config_id") or "").strip()
+            customization_id_value = _extract_customization_id(latest, request_data.get("configData"))
+
+            attempts = int(latest.get("external_sync_attempts") or 0)
+
+            if config_id_value and customization_id_value:
+                # 立刻尝试一次
+                result = _external_bind_config(config_id=config_id_value, customization_id=customization_id_value)
+
+                if result["ok"]:
+                    db_client.update_request(
+                        request_id,
+                        {
+                            "external_sync_status": "success",
+                            "external_sync_last_error": "",
+                            "external_sync_last_http_status": int(result["http_status"] or 0),
+                            "external_sync_attempts": attempts,
+                            "external_sync_next_retry_at": "",
+                        },
+                    )
+                else:
+                    http_status = int(result["http_status"] or 0)
+                    retryable = bool(result.get("retryable", False))
+                    # 404：不重试（或最多 1 次）
+                    if http_status == 404 and attempts >= 1:
+                        retryable = False
+
+                    new_attempts = attempts + 1
+                    if retryable and new_attempts < EXTERNAL_SYNC_MAX_ATTEMPTS:
+                        next_retry_at_str = _compute_next_retry_at(new_attempts, result.get("next_retry_after"))
+                        new_sync_status = "failed"
+                    else:
+                        next_retry_at_str = ""
+                        new_sync_status = "permanent_failed"
+
+                    db_client.update_request(
+                        request_id,
+                        {
+                            "external_sync_status": new_sync_status,
+                            "external_sync_last_error": str(result.get("message") or ""),
+                            "external_sync_last_http_status": http_status,
+                            "external_sync_attempts": new_attempts,
+                            "external_sync_next_retry_at": next_retry_at_str,
+                        },
+                    )
+            else:
+                db_client.update_request(
+                    request_id,
+                    {
+                        "external_sync_status": "permanent_failed",
+                        "external_sync_last_error": "Missing config_id or customization_id for external sync",
+                        "external_sync_last_http_status": 0,
+                        "external_sync_attempts": attempts,
+                        "external_sync_next_retry_at": "",
+                    },
+                )
         
         # 记录status变化
         if "status" in request_data and request_data["status"] != old_status:

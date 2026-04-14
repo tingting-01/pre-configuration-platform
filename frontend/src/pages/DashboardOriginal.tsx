@@ -593,31 +593,55 @@ const DashboardOriginal = () => {
     return request?.configData?.system?.wisdmConnect === true
   }
 
+  const getGeneralValue = (request: any, keys: string[]): string => {
+    const general = request?.configData?.general || {}
+    for (const key of keys) {
+      const v = general?.[key] ?? request?.[key]
+      if (v !== undefined && v !== null && String(v).trim() !== '') {
+        return String(v).trim()
+      }
+    }
+    return ''
+  }
+
   // Status update handlers
   const handleStatusChange = async (requestId: string, newStatus: string) => {
+    const currentRequest = requests.find(r => r.id === requestId)
+    if (!currentRequest) {
+      return
+    }
+
+    const statusLower = (newStatus || '').toLowerCase()
+    if (statusLower === 'done' || statusLower === 'released') {
+      const customerId = String(currentRequest.rakId || '').trim()
+      const pid = getGeneralValue(currentRequest, ['pid', 'PID', 'productId', 'product_id'])
+      const barcode = getGeneralValue(currentRequest, ['barcode', 'barCode', 'BarCode', 'bar_code'])
+      const soNumber = getGeneralValue(currentRequest, ['orderId', 'order_id', 'OrderID', 'OrderId'])
+      const statusValue = String(newStatus || currentRequest.status || '').trim()
+
+      const missingFields: string[] = []
+      if (!customerId) missingFields.push('Customer ID')
+      if (!requestId) missingFields.push('Request ID')
+      if (!pid) missingFields.push('PID')
+      if (!barcode) missingFields.push('Barcode')
+      if (!statusValue) missingFields.push('Status')
+      if (!soNumber) missingFields.push('SO Number')
+
+      if (missingFields.length > 0) {
+        setStatusUpdateError(`Cannot set to RELEASED. Please fill: ${missingFields.join(', ')}`)
+        setTimeout(() => {
+          setStatusUpdateError(null)
+        }, 4000)
+        return
+      }
+    }
+
     // 如果切换到 "WisDM Provisioning"，需要先确认
     if (newStatus === 'WisDM Provisioning') {
       // 保存当前状态和待更新的状态
-      const currentRequest = requests.find(r => r.id === requestId)
-      if (currentRequest) {
-        // 检查是否启用了WisDM，如果未启用，不允许切换
-        if (!isWisDMEnabledForRequest(currentRequest)) {
-          // 恢复select的值到原来的状态（更新缓存）
-          queryClient.setQueryData('requests', (oldData: any[] = []) => 
-            oldData.map((request: any) => 
-              request.id === requestId 
-                ? { ...request, status: currentRequest.status }
-                : request
-            )
-          )
-          setStatusUpdateError('Cannot switch to WisDM Provisioning: WisDM Provisioning is not enabled for this request.')
-          setTimeout(() => {
-            setStatusUpdateError(null)
-          }, 3000)
-          return
-        }
-        
-        // 先恢复select的值到原来的状态（因为select已经改变了）
+      // 检查是否启用了WisDM，如果未启用，不允许切换
+      if (!isWisDMEnabledForRequest(currentRequest)) {
+        // 恢复select的值到原来的状态（更新缓存）
         queryClient.setQueryData('requests', (oldData: any[] = []) => 
           oldData.map((request: any) => 
             request.id === requestId 
@@ -625,14 +649,28 @@ const DashboardOriginal = () => {
               : request
           )
         )
-        
-        setPendingStatusUpdate({ 
-          requestId, 
-          newStatus,
-          oldStatus: currentRequest.status // 保存旧状态以便取消时恢复
-        })
-        setShowWisDMConfirm(true)
+        setStatusUpdateError('Cannot switch to WisDM Provisioning: WisDM Provisioning is not enabled for this request.')
+        setTimeout(() => {
+          setStatusUpdateError(null)
+        }, 3000)
+        return
       }
+
+      // 先恢复select的值到原来的状态（因为select已经改变了）
+      queryClient.setQueryData('requests', (oldData: any[] = []) => 
+        oldData.map((request: any) => 
+          request.id === requestId 
+            ? { ...request, status: currentRequest.status }
+            : request
+        )
+      )
+      
+      setPendingStatusUpdate({ 
+        requestId, 
+        newStatus,
+        oldStatus: currentRequest.status // 保存旧状态以便取消时恢复
+      })
+      setShowWisDMConfirm(true)
       return
     }
     

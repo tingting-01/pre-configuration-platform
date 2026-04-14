@@ -1849,7 +1849,7 @@ const RequestDetails = () => {
                         <dd className="mt-1 text-sm text-gray-900">{displayTextValue(config.general.barcode, '') || ''}</dd>
                       </div>
                       <div>
-                        <dt className="text-sm font-medium text-gray-500">Order ID</dt>
+                        <dt className="text-sm font-medium text-gray-500">SO Number</dt>
                         <dd className="mt-1 text-sm text-gray-900">{displayTextValue(config.general.orderId, '') || ''}</dd>
                       </div>
                       <div>

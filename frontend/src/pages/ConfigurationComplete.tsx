@@ -836,20 +836,12 @@ const ConfigurationComplete = () => {
   const validateRequiredFields = () => {
     const errors: Record<string, string> = {}
     
-    // Order Information 必填字段验证（Customer Email、Order ID、Customization ID、Name of the company）
+    // Order Information 必填字段验证（Customer Email、Name of the company）
     const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
-    const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
-    const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
     const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
     
     if (!rakIdValue || rakIdValue.length === 0) {
       errors.rakId = 'Customer Email is required'
-    }
-    if (!orderIdValue || orderIdValue.length === 0) {
-      errors.orderId = 'Order ID is required'
-    }
-    if (!customizationIdValue || customizationIdValue.length === 0) {
-      errors.customizationId = 'Customization ID is required'
     }
     if (!customerNameValue || customerNameValue.length === 0) {
       errors.customerName = 'Company Name is required'
@@ -1465,18 +1457,10 @@ const ConfigurationComplete = () => {
     if (!validateRequiredFields()) {
       const missingFields: string[] = []
       const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
-      const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
-      const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
       const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
       
       if (!rakIdValue || rakIdValue.length === 0) {
         missingFields.push('Customer Email')
-      }
-      if (!orderIdValue || orderIdValue.length === 0) {
-        missingFields.push('Order ID')
-      }
-      if (!customizationIdValue || customizationIdValue.length === 0) {
-        missingFields.push('Customization ID')
       }
       if (!customerNameValue || customerNameValue.length === 0) {
         missingFields.push('Name of the company')
@@ -1486,7 +1470,7 @@ const ConfigurationComplete = () => {
       
       // 滚动到第一个错误字段
       setTimeout(() => {
-        const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="orderId"], [data-field="customizationId"], [data-field="customerName"]')
+        const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="customerName"]')
         if (firstErrorField) {
           firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' })
           const input = firstErrorField.querySelector('input')
@@ -2311,7 +2295,7 @@ const ConfigurationComplete = () => {
                 </div>
 
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
-                  Order ID <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+                  SO Number
                 </div>
                 <div data-field="orderId">
                   <input
@@ -2328,7 +2312,7 @@ const ConfigurationComplete = () => {
                         })
                       }
                     }}
-                    placeholder="Enter Order ID"
+                    placeholder="Enter SO Number"
                     style={{
                       width: '100%',
                       padding: '12px',
@@ -2347,7 +2331,7 @@ const ConfigurationComplete = () => {
                 </div>
 
                 <div style={{ fontSize: '14px', fontWeight: '500', color: '#374151', display: 'flex', alignItems: 'center' }}>
-                  Customization ID <span style={{ color: '#dc2626', marginLeft: '4px' }}>*</span>
+                  Customization ID
                 </div>
                 <div data-field="customizationId">
                   <input
@@ -6887,18 +6871,10 @@ const ConfigurationComplete = () => {
                 if (!validateRequiredFields()) {
                   const missingFields: string[] = []
                   const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
-                  const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
-                  const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
                   const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
                   
                   if (!rakIdValue || rakIdValue.length === 0) {
                     missingFields.push('Customer Email')
-                  }
-                  if (!orderIdValue || orderIdValue.length === 0) {
-                    missingFields.push('Order ID')
-                  }
-                  if (!customizationIdValue || customizationIdValue.length === 0) {
-                    missingFields.push('Customization ID')
                   }
                   if (!customerNameValue || customerNameValue.length === 0) {
                     missingFields.push('Name of the company')
@@ -6908,7 +6884,7 @@ const ConfigurationComplete = () => {
                   
                   // 滚动到第一个错误字段
                   setTimeout(() => {
-                    const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="orderId"], [data-field="customizationId"], [data-field="customerName"]')
+                    const firstErrorField = document.querySelector('[data-field="rakId"], [data-field="customerName"]')
                     if (firstErrorField) {
                       firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' })
                       const input = firstErrorField.querySelector('input')
@@ -7068,18 +7044,10 @@ const ConfigurationComplete = () => {
                     if (!validateRequiredFields()) {
                       const missingFields: string[] = []
                       const rakIdValue = (formData.rakId && typeof formData.rakId === 'string') ? formData.rakId.trim() : ''
-                      const orderIdValue = (formData.orderId && typeof formData.orderId === 'string') ? formData.orderId.trim() : ''
-                      const customizationIdValue = (formData.customizationId && typeof formData.customizationId === 'string') ? formData.customizationId.trim() : ''
                       const customerNameValue = (formData.customerName && typeof formData.customerName === 'string') ? formData.customerName.trim() : ''
                       
                       if (!rakIdValue || rakIdValue.length === 0) {
                         missingFields.push('Customer Email')
-                      }
-                      if (!orderIdValue || orderIdValue.length === 0) {
-                        missingFields.push('Order ID')
-                      }
-                      if (!customizationIdValue || customizationIdValue.length === 0) {
-                        missingFields.push('Customization ID')
                       }
                       if (!customerNameValue || customerNameValue.length === 0) {
                         missingFields.push('Name of the company')

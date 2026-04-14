@@ -188,9 +188,9 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def build_config_id(customer_id: str, request_id: str, pid: str, barcode: str, order_id: str, status_value: str) -> str:
+def build_config_id(customer_id: str, request_id: str, pid: str, barcode: str, status_value: str) -> str:
     """按约定顺序生成 config_id。"""
-    parts = [customer_id or "", request_id or "", pid or "", barcode or "", order_id or "", status_value or ""]
+    parts = [customer_id or "", request_id or "", pid or "", barcode or "", status_value or ""]
     return "_".join(str(part).strip() for part in parts)
 
 
@@ -1141,17 +1141,44 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
             if isinstance(incoming_config_data, dict):
                 general_data.update(incoming_config_data.get("general") or {})
 
+            def _pick_general_value(keys: List[str]) -> str:
+                for key in keys:
+                    val = general_data.get(key)
+                    if val is not None and str(val).strip() != "":
+                        return str(val).strip()
+                return ""
+
             customer_id = request_data.get("rakId") or request.get("rak_id") or ""
-            pid = general_data.get("pid") or ""
-            barcode = general_data.get("barcode") or ""
-            order_id = general_data.get("orderId") or ""
+            pid = _pick_general_value(["pid", "PID", "productId", "product_id"])
+            barcode = _pick_general_value(["barcode", "barCode", "BarCode", "bar_code"])
+            order_id = _pick_general_value(["orderId", "order_id", "OrderID", "OrderId"])
+            status_value = str(new_status or "").strip()
+
+            missing_fields = []
+            if not str(customer_id).strip():
+                missing_fields.append("customer_id")
+            if not str(request_id).strip():
+                missing_fields.append("request_id")
+            if not pid:
+                missing_fields.append("pid")
+            if not barcode:
+                missing_fields.append("barcode")
+            if not status_value:
+                missing_fields.append("status")
+            if not order_id:
+                missing_fields.append("SO Number")
+
+            if missing_fields:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot move to Released. Please fill: {', '.join(missing_fields)}",
+                )
 
             update_data["config_id"] = build_config_id(
                 customer_id=customer_id,
                 request_id=request_id,
                 pid=pid,
                 barcode=barcode,
-                order_id=order_id,
                 status_value=new_status,
             )
         

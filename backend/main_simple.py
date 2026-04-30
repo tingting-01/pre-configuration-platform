@@ -13,10 +13,15 @@ from pydantic import BaseModel
 from typing import Any, Optional, List
 import hashlib
 import jwt
+from dotenv import load_dotenv
 from dynamodb_client import db_client
 from urllib import request as urllib_request
 from urllib import parse as urllib_parse
 from urllib.error import HTTPError, URLError
+
+# 固定加载 backend/.env，避免依赖工作目录导致读取失败
+_CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_CURRENT_DIR, ".env"))
 
 app = FastAPI(title="Auth Prototype API", version="1.0.0")
 
@@ -218,7 +223,7 @@ EXTERNAL_SYNC_HTTP_TIMEOUT = int(os.getenv("EXTERNAL_SYNC_HTTP_TIMEOUT", "20"))
 
 # 内存 token 缓存（24h 有效期，取 23h 作为安全刷新窗口）
 _external_token_lock = threading.Lock()
-_external_token_cache: dict = {"token": None, "fetched_at": None}
+_external_token_cache: dict = {"token": None, "fetched_at": None}$env:EXTERNAL_SERVICE_USERNAME
 
 
 def _utcnow() -> datetime:

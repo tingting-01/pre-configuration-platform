@@ -358,6 +358,7 @@ const DashboardOriginal = () => {
   }, [assigneeDropdownOpen])
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [hoveredRequestId, setHoveredRequestId] = useState<string | null>(null)
 
   const handleLogout = () => {
     setShowLogoutConfirm(true)
@@ -371,6 +372,17 @@ const DashboardOriginal = () => {
 
   const handleViewDetails = (requestId: string) => {
     navigate(`/request-details/${requestId}`)
+  }
+
+  const handleRowClick = (
+    event: React.MouseEvent<HTMLTableRowElement>,
+    requestId: string
+  ) => {
+    const target = event.target as HTMLElement
+    if (target.closest('[data-no-row-click]')) {
+      return
+    }
+    handleViewDetails(requestId)
   }
 
   const handleNewRequest = () => {
@@ -1891,8 +1903,20 @@ const DashboardOriginal = () => {
                 </thead>
                 <tbody>
                   {paginatedRequests.map((request: any) => (
-                    <tr key={request.id} style={{ borderBottom: '1px solid #e5e7eb', lineHeight: '3' }}>
-                      <td style={{ padding: '4px 10px' }}>
+                    <tr
+                      key={request.id}
+                      onClick={(event) => handleRowClick(event, request.id)}
+                      onMouseEnter={() => setHoveredRequestId(request.id)}
+                      onMouseLeave={() => setHoveredRequestId(null)}
+                      style={{
+                        borderBottom: '1px solid #e5e7eb',
+                        lineHeight: '3',
+                        cursor: 'pointer',
+                        backgroundColor: hoveredRequestId === request.id ? '#E9E1FD' : '#ffffff',
+                        transition: 'background-color 0.15s ease'
+                      }}
+                    >
+                      <td data-no-row-click style={{ padding: '4px 10px' }}>
                         <input
                           type="checkbox"
                           checked={selectedRequests.has(request.id)}
@@ -2081,7 +2105,7 @@ const DashboardOriginal = () => {
                           hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
                         }).replace(/(\d+)\/(\d+)\/(\d+),?\s*(\d+):(\d+):(\d+)/, '$3/$1/$2 $4:$5:$6')}
                       </td>
-                      <td style={{ padding: '4px 10px' }}>
+                      <td data-no-row-click style={{ padding: '4px 10px' }}>
                         {user?.email?.toLowerCase().endsWith('@rakwireless.com') ? (
                           <div style={{ position: 'relative', display: 'inline-block' }}>
                             <select
@@ -2142,7 +2166,7 @@ const DashboardOriginal = () => {
                           </span>
                         )}
                       </td>
-                      <td style={{ padding: '4px 10px' }}>
+                      <td data-no-row-click style={{ padding: '4px 10px' }}>
                         <div style={{ position: 'relative', display: 'inline-block' }} data-assign-dropdown>
                           {user?.email?.toLowerCase().endsWith('@rakwireless.com') ? (
                             <>
@@ -2314,7 +2338,7 @@ const DashboardOriginal = () => {
                           </span>
                         </div>
                       </td>
-                      <td style={{ padding: '4px 10px' }}>
+                      <td data-no-row-click style={{ padding: '4px 10px' }}>
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {(() => {
                             const isReleased = ['done', 'released'].includes((request.status || '').toLowerCase())

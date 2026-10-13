@@ -363,6 +363,26 @@ class DynamoDBClient:
         except ClientError as e:
             print(f"Error querying requests by user: {e}")
             return []
+
+    def query_request_ids_by_user(self, user_id: int) -> List[str]:
+        """查询用户创建的请求 ID，避免读取通知接口不需要的完整请求内容。"""
+        try:
+            response = self.tables['requests'].query(
+                IndexName='user_id-index',
+                KeyConditionExpression='user_id = :uid',
+                ExpressionAttributeValues={':uid': user_id},
+                ProjectionExpression='#rid',
+                ExpressionAttributeNames={'#rid': 'request_id'},
+                ScanIndexForward=False
+            )
+            return [
+                item['request_id']
+                for item in response.get('Items', [])
+                if item.get('request_id')
+            ]
+        except ClientError as e:
+            print(f"Error querying request ids by user: {e}")
+            return []
     
     def query_requests_by_status(self, status: str) -> List[dict]:
         """通过 status 查询请求（使用 GSI）"""
@@ -391,6 +411,26 @@ class DynamoDBClient:
             return [convert_from_dynamodb_item(item) for item in response.get('Items', [])]
         except ClientError as e:
             print(f"Error querying requests by assignee: {e}")
+            return []
+
+    def query_request_ids_by_assignee(self, assignee: str) -> List[str]:
+        """查询当前分配给用户的请求 ID，避免读取完整请求内容。"""
+        try:
+            response = self.tables['requests'].query(
+                IndexName='assignee-index',
+                KeyConditionExpression='assignee = :assignee',
+                ExpressionAttributeValues={':assignee': assignee},
+                ProjectionExpression='#rid',
+                ExpressionAttributeNames={'#rid': 'request_id'},
+                ScanIndexForward=False
+            )
+            return [
+                item['request_id']
+                for item in response.get('Items', [])
+                if item.get('request_id')
+            ]
+        except ClientError as e:
+            print(f"Error querying request ids by assignee: {e}")
             return []
     
     def scan_all_requests(self) -> List[dict]:
@@ -815,6 +855,38 @@ class DynamoDBClient:
             return [convert_from_dynamodb_item(item) for item in response.get('Items', [])]
         except ClientError as e:
             print(f"Error getting activities: {e}")
+            return []
+
+    def get_assignment_activities_by_request(
+        self,
+        request_id: str,
+        activity_types: List[str]
+    ) -> List[dict]:
+        """按请求读取指定类型的通知活动，只返回通知计算所需字段。"""
+        try:
+            response = self.tables['activities'].query(
+                KeyConditionExpression='request_id = :rid',
+                ExpressionAttributeValues={':rid': request_id},
+                FilterExpression=Attr('activity_type').is_in(activity_types),
+                ProjectionExpression=(
+                    '#id, #rid, #type, #description, #uid, #created_at'
+                ),
+                ExpressionAttributeNames={
+                    '#id': 'id',
+                    '#rid': 'request_id',
+                    '#type': 'activity_type',
+                    '#description': 'description',
+                    '#uid': 'user_id',
+                    '#created_at': 'created_at',
+                },
+                ScanIndexForward=False
+            )
+            return [
+                convert_from_dynamodb_item(item)
+                for item in response.get('Items', [])
+            ]
+        except ClientError as e:
+            print(f"Error getting assignment activities: {e}")
             return []
     
     def query_activities_by_user(self, user_id: int, filter_expression=None) -> List[dict]:

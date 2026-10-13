@@ -105,7 +105,8 @@ const AssignmentNotification: React.FC<AssignmentNotificationProps> = ({
     ['assignments', user?.email],
     () => requestAPI.getMyAssignments(),
     {
-      enabled: !!token && !!user?.email,
+      // 临时关闭 assignments 接口，用于确认该接口是否导致特定账号登录后阻塞系统。
+      enabled: false,
       staleTime: 1 * 60 * 1000, // 数据在1分钟内被认为是新鲜的
       cacheTime: 5 * 60 * 1000, // 缓存保留5分钟
       refetchOnWindowFocus: false, // 窗口获得焦点时不自动刷新

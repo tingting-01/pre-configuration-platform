@@ -4,6 +4,7 @@ import os
 import shutil
 import asyncio
 import threading
+import time
 from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -1800,95 +1801,94 @@ async def get_activities(request_id: str, current_user: dict = Depends(get_curre
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+def _get_my_assignments_sync(current_user: dict) -> List[dict]:
+    """同步查询当前用户的提醒活动，由接口放入工作线程执行。"""
+    request_started_at = time.perf_counter()
+    user_email = current_user.get("email")
+    user_id = current_user.get("id")
+    if not user_email or not user_id:
+        return []
+
+    # 当前用户创建的请求需要提醒 assigned 和 status_changed。
+    my_request_ids = set(db_client.query_request_ids_by_user(user_id))
+
+    # 分配给当前用户的请求需要提醒 assigned 和 unassigned。
+    assigned_request_ids = set(db_client.query_request_ids_by_assignee(user_email))
+    all_request_ids = my_request_ids | assigned_request_ids
+
+    activity_query_started_at = time.perf_counter()
+    latest_activities = {}
+    activity_count = 0
+    for request_id in all_request_ids:
+        if request_id in my_request_ids:
+            activity_types = ['assigned', 'status_changed']
+        else:
+            activity_types = ['assigned', 'unassigned']
+
+        activities = db_client.get_assignment_activities_by_request(
+            request_id,
+            activity_types,
+        )
+        activity_count += len(activities)
+        for activity in activities:
+            activity_type = activity.get('activity_type')
+            key = (request_id, activity_type)
+            existing = latest_activities.get(key)
+            activity_created_at = activity.get('created_at') or ''
+            existing_created_at = existing.get('created_at') or '' if existing else ''
+            if existing is None or activity_created_at > existing_created_at:
+                latest_activities[key] = activity
+    activity_query_elapsed = time.perf_counter() - activity_query_started_at
+
+    # 原实现对每条活动都扫描一次 users 表。现在收集不重复作者后一次批量查询。
+    author_ids = {
+        activity.get('user_id')
+        for activity in latest_activities.values()
+        if activity.get('user_id') is not None
+    }
+    author_query_started_at = time.perf_counter()
+    authors_by_id = db_client.get_users_by_ids(list(author_ids)) if author_ids else {}
+    author_query_elapsed = time.perf_counter() - author_query_started_at
+
+    result_activities = []
+    for activity in latest_activities.values():
+        author_id = activity.get('user_id')
+        author = authors_by_id.get(author_id)
+        result_activities.append({
+            "id": activity.get('id') or activity.get('created_at'),
+            "requestId": activity.get('request_id'),
+            "activityType": activity.get('activity_type'),
+            "description": activity.get('description'),
+            "createdAt": activity.get('created_at') or '',
+            "authorName": author.get('name') if author else "Unknown",
+            "authorEmail": author.get('email') if author else "unknown@example.com"
+        })
+
+    result_activities.sort(key=lambda activity: activity['createdAt'], reverse=True)
+    print(
+        "📊 [assignments] 查询完成: "
+        f"requests={len(all_request_ids)}, "
+        f"activities={activity_count}, "
+        f"result={len(result_activities)}, "
+        f"authors={len(author_ids)}, "
+        f"activity_query={activity_query_elapsed:.3f}s, "
+        f"author_query={author_query_elapsed:.3f}s, "
+        f"total={time.perf_counter() - request_started_at:.3f}s",
+        flush=True,
+    )
+    return result_activities
+
+
 @app.get("/api/users/me/assignments")
 async def get_my_assignments(current_user: dict = Depends(get_current_user)):
-    """获取当前用户相关的活动
-    提醒逻辑：
-    1. 当前用户创建的request：所有assign和status_changed活动都提醒
-    2. 非当前用户创建的request：只有assign/unassigned活动，且assignee是当前用户时才提醒
-    """
+    """获取当前用户相关的活动，不阻塞 FastAPI 事件循环。"""
     try:
-        user_email = current_user.get("email")
-        user_id = current_user.get("id")
-        if not user_email or not user_id:
-            return []
-        
-        print(f"🔍 Searching notifications for user: {user_email} (ID: {user_id})")
-        
-        # 情况1: 获取当前用户创建的所有请求
-        my_requests = db_client.query_requests_by_user(user_id)
-        my_request_ids = {req.get('request_id') for req in my_requests}
-        
-        # 情况2: 获取分配给当前用户的所有请求
-        assigned_requests = db_client.query_requests_by_assignee(user_email)
-        assigned_request_ids = {req.get('request_id') for req in assigned_requests}
-        
-        # 收集所有需要查询的请求ID
-        all_request_ids = my_request_ids | assigned_request_ids
-        
-        # 查询这些请求的所有活动
-        all_activities = []
-        for req_id in all_request_ids:
-            activities = db_client.get_activities_by_request(req_id)
-            all_activities.extend(activities)
-        
-        # 过滤活动
-        filtered_activities = []
-        for activity in all_activities:
-            request_id = activity.get('request_id')
-            activity_type = activity.get('activity_type')
-            is_my_request = request_id in my_request_ids
-            
-            # 情况1: 我创建的请求，只保留 assigned 和 status_changed
-            if is_my_request:
-                if activity_type in ['assigned', 'status_changed']:
-                    filtered_activities.append(activity)
-            # 情况2: 不是我创建的请求，只保留 assigned/unassigned 且与我相关
-            else:
-                if activity_type in ['assigned', 'unassigned']:
-                    description = activity.get('description', '')
-                    # 检查描述中是否包含当前用户邮箱
-                    if user_email in description or request_id in assigned_request_ids:
-                        filtered_activities.append(activity)
-        
-        # 获取活动作者信息
-        result_activities = []
-        for activity in filtered_activities:
-            author_id = activity.get('user_id')
-            author = db_client.get_user_by_id(author_id) if author_id else None
-            
-            result_activities.append({
-                "id": activity.get('id') or activity.get('created_at'),  # 使用 created_at 作为临时 ID
-                "requestId": activity.get('request_id'),
-                "activityType": activity.get('activity_type'),
-                "description": activity.get('description'),
-                "createdAt": activity.get('created_at'),
-                "authorName": author.get('name') if author else "Unknown",
-                "authorEmail": author.get('email') if author else "unknown@example.com"
-            })
-        
-        # 去重：按request_id和activity_type组合去重，保留最新的
-        request_activity_map = {}
-        for activity in result_activities:
-            key = f"{activity['requestId']}_{activity['activityType']}"
-            if key not in request_activity_map:
-                request_activity_map[key] = activity
-            else:
-                # 比较时间，保留最新的
-                if activity['createdAt'] > request_activity_map[key]['createdAt']:
-                    request_activity_map[key] = activity
-        
-        # 按时间降序排序
-        final_activities = sorted(
-            request_activity_map.values(),
-            key=lambda x: x['createdAt'],
-            reverse=True
-        )
-        
-        print(f"✅ Returning {len(final_activities)} unique assignment activities")
-        return final_activities
+        return await asyncio.to_thread(_get_my_assignments_sync, current_user)
     except Exception as e:
-        print(f"❌ Error in get_my_assignments: {e}")
+        print(
+            f"❌ [assignments] 查询失败: error_type={type(e).__name__}, error={e}",
+            flush=True,
+        )
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

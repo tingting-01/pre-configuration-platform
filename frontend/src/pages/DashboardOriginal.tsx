@@ -1893,7 +1893,7 @@ const DashboardOriginal = () => {
                       color: '#374151',
                       background: '#f9fafb',
                       width: 'auto',
-                      minWidth: '120px',
+                      minWidth: '150px',
                       fontSize: '12px',
                       lineHeight: '1.3'
                     }}>
@@ -2411,6 +2411,27 @@ const DashboardOriginal = () => {
                               Edit
                             </button>
                           )}
+                          <button
+                            onClick={() => navigate(`/configuration?copy=${request.id}`)}
+                            style={{
+                              padding: '2px 8px',
+                              background: '#3b82f6',
+                              color: '#ffffff',
+                              border: 'none',
+                              borderRadius: '0.375rem',
+                              fontSize: '10px',
+                              fontWeight: '500',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              lineHeight: '1.3',
+                              minWidth: '60px',
+                              height: '24px',
+                              whiteSpace: 'nowrap'
+                            }}
+                            title="Create a new request from this request"
+                          >
+                            Duplicate
+                          </button>
                               </>
                             )
                           })()}

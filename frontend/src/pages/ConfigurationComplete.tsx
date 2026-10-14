@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { requestAPI, templateAPI, getApiBaseUrl } from '../services/api'
+import { requestAPI, templateAPI, getApiBaseUrl, type CreateRequestRequest } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { useQuery, useQueryClient } from 'react-query'
 import { X, Edit2, Plus } from 'lucide-react'
@@ -12,9 +12,15 @@ const ConfigurationComplete = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
-  const editRequestId = searchParams.get('edit')
-  const templateId = searchParams.get('template')
-  const editTemplateId = searchParams.get('editTemplate')
+  // 复制新建参数
+  const copyRequestId = searchParams.get('copy')
+  // 编辑参数
+  const editRequestId = copyRequestId ? null : searchParams.get('edit')
+  const requestSourceId = copyRequestId || editRequestId
+  const templateId = requestSourceId ? null : searchParams.get('template')
+  const editTemplateId = requestSourceId ? null : searchParams.get('editTemplate')
+  // 是否是复制模式
+  const isCopyMode = Boolean(copyRequestId)
   
   // 响应式设计状态（保留以备将来使用）
   // const [isMobile, setIsMobile] = useState(false)
@@ -38,15 +44,22 @@ const ConfigurationComplete = () => {
   // 检查认证状态
   const { isAuthenticated, token } = useAuthStore()
   
-  // 如果是编辑模式，加载已有的request数据
-  const { data: existingRequest } = useQuery(
-    ['request', editRequestId],
-    () => requestAPI.getRequest(editRequestId!),
+  // 编辑和复制模式共享同一份详情数据与表单回填逻辑
+  const {
+    data: existingRequest,
+    isLoading: isRequestSourceLoading,
+    isError: isRequestSourceError,
+    error: requestSourceError
+  } = useQuery(
+    ['request', requestSourceId],
+    () => requestAPI.getRequest(requestSourceId!),
     { 
-      enabled: !!editRequestId,
+      enabled: !!requestSourceId,
       retry: false
     }
   )
+
+  const [hydratedRequestId, setHydratedRequestId] = useState<string | null>(null)
 
   // 如果是从模板创建，加载模板数据
   const { data: templateData } = useQuery(
@@ -507,9 +520,12 @@ const ConfigurationComplete = () => {
     }
   }, [editTemplateData, editRequestId])
 
-  // 如果是编辑模式，加载已有配置数据到表单
+  // 编辑和复制模式使用同一套已有配置回填逻辑
   useEffect(() => {
+    let hydrationTimer: number | undefined
+
     if (existingRequest && existingRequest.configData) {
+      setHydratedRequestId(null)
       const config = existingRequest.configData
       console.log('=== Loading Existing Config ===')
       console.log('Config:', config)
@@ -741,11 +757,18 @@ const ConfigurationComplete = () => {
       })
       
       // 加载标签（如果存在）- 在加载配置后设置，避免被自动生成覆盖
-      if (existingRequest.tags && Array.isArray(existingRequest.tags) && existingRequest.tags.length > 0) {
-        // 延迟设置标签，确保formData已更新
-        setTimeout(() => {
+      // 延迟设置标签，确保formData及其自动标签已更新后再完成回填
+      hydrationTimer = window.setTimeout(() => {
+        if (existingRequest.tags && Array.isArray(existingRequest.tags) && existingRequest.tags.length > 0) {
           setTags(existingRequest.tags || [])
-        }, 100)
+        }
+        setHydratedRequestId(existingRequest.id)
+      }, 100)
+    }
+
+    return () => {
+      if (hydrationTimer !== undefined) {
+        window.clearTimeout(hydrationTimer)
       }
     }
   }, [existingRequest])
@@ -831,6 +854,23 @@ const ConfigurationComplete = () => {
   const showSuccess = (message: string) => {
     showToast(message, 'success', 3000) // 3秒后自动消失
   }
+
+  useEffect(() => {
+    if (!isCopyMode || !isRequestSourceError) {
+      return
+    }
+
+    const error = requestSourceError as any
+    const detail = error?.response?.data?.detail || error?.message || 'Unknown error'
+    showToast(`Failed to load source request: ${detail}`, 'error', 5000)
+  }, [isCopyMode, isRequestSourceError, requestSourceError, showToast])
+
+  const isCopySourceReady = !isCopyMode || (
+    Boolean(existingRequest) &&
+    hydratedRequestId === copyRequestId &&
+    !isRequestSourceLoading &&
+    !isRequestSourceError
+  )
 
   // 验证必填字段
   const validateRequiredFields = () => {
@@ -1452,6 +1492,13 @@ const ConfigurationComplete = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (!isCopySourceReady) {
+      showError(isRequestSourceError
+        ? 'The source request could not be loaded. Please return to the dashboard and try again.'
+        : 'The source request is still loading. Please wait before saving.')
+      return
+    }
     
     // 验证必填字段（在设置 loading 之前）
     if (!validateRequiredFields()) {
@@ -1733,7 +1780,8 @@ const ConfigurationComplete = () => {
           navigate('/dashboard')
         }, 2000)
       } else {
-        await requestAPI.createRequest({
+        // 新建和复制模式都使用 createRequest 接口
+        const createPayload = {
           companyName: formData.customerName || 'Unnamed',
           rakId: formData.rakId,
           orderId: formData.orderId,
@@ -1741,7 +1789,9 @@ const ConfigurationComplete = () => {
           changes: {},
           originalConfig: {},
           tags: tags
-        })
+        } satisfies CreateRequestRequest
+
+        await requestAPI.createRequest(createPayload)
         // 使请求列表缓存失效，并立即触发刷新
         queryClient.invalidateQueries('requests', { refetchActive: true })
         setSubmitProgress('')
@@ -2194,6 +2244,25 @@ const ConfigurationComplete = () => {
           }}>
             Pre-configuration Request Form
           </h1>
+
+          {isCopyMode && (
+            <div style={{
+              margin: '-16px 0 32px',
+              padding: '12px 16px',
+              borderRadius: '6px',
+              border: `1px solid ${isRequestSourceError ? '#fecaca' : '#c4b5fd'}`,
+              background: isRequestSourceError ? '#fef2f2' : '#f5f3ff',
+              color: isRequestSourceError ? '#b91c1c' : '#5b21b6',
+              fontSize: '14px',
+              textAlign: 'center'
+            }}>
+              {isRequestSourceLoading
+                ? `Loading source request ${copyRequestId}...`
+                : isRequestSourceError
+                  ? `Source request ${copyRequestId} could not be loaded.`
+                  : `Copying from ${copyRequestId}. Saving will create a new request and will not modify the original.`}
+            </div>
+          )}
 
           {/* Order Information */}
           <section style={{ marginBottom: '32px' }}>
@@ -6849,20 +6918,26 @@ const ConfigurationComplete = () => {
             <button
               type="submit"
               onClick={handleSubmit}
-              disabled={isLoading}
+              disabled={isLoading || !isCopySourceReady}
               style={{
                 padding: '12px 24px',
-                background: isLoading ? '#9ca3af' : '#4c1d95',
+                background: (isLoading || !isCopySourceReady) ? '#9ca3af' : '#4c1d95',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: '6px',
                 fontSize: '16px',
                 fontWeight: '500',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: (isLoading || !isCopySourceReady) ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s ease'
               }}
             >
-              {isLoading ? 'Saving Configuration...' : 'Save Configuration'}
+              {isRequestSourceLoading
+                ? 'Loading Source Request...'
+                : isRequestSourceError
+                  ? 'Source Request Unavailable'
+                  : isLoading
+                    ? 'Saving Configuration...'
+                    : 'Save Configuration'}
             </button>
             <button
               type="button"
@@ -6897,16 +6972,16 @@ const ConfigurationComplete = () => {
                 }
                 setShowSaveTemplateDialog(true)
               }}
-              disabled={isLoading}
+              disabled={isLoading || !isCopySourceReady}
               style={{
                 padding: '12px 24px',
-                background: isLoading ? '#9ca3af' : '#ffffff',
-                color: isLoading ? '#ffffff' : '#7c3aed',
+                background: (isLoading || !isCopySourceReady) ? '#9ca3af' : '#ffffff',
+                color: (isLoading || !isCopySourceReady) ? '#ffffff' : '#7c3aed',
                 border: '1px solid #7c3aed',
                 borderRadius: '6px',
                 fontSize: '16px',
                 fontWeight: '500',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: (isLoading || !isCopySourceReady) ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s ease'
               }}
             >

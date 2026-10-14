@@ -4,13 +4,17 @@ DynamoDB 客户端封装
 """
 import boto3
 from botocore.exceptions import ClientError
+from boto3.dynamodb.types import TypeSerializer
 from typing import Dict, List, Optional, Any
 import json
+import logging
 import os
 from decimal import Decimal
 from datetime import datetime
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
+
+logger = logging.getLogger(__name__)
 
 # 加载 .env 文件（如果存在）
 load_dotenv()
@@ -20,15 +24,19 @@ load_dotenv()
 # 1. 环境变量 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
 # 2. AWS 配置文件 (~/.aws/credentials)
 # 3. IAM 角色（如果在 AWS 服务内）
-dynamodb = boto3.resource(
-    'dynamodb',
-    region_name=os.getenv('AWS_REGION', 'ap-southeast-2'),
-    # 如果环境变量存在，显式传入；否则 boto3 会自动读取配置文件
+DYNAMODB_CONNECTION_KWARGS = {
+    'region_name': os.getenv('AWS_REGION', 'ap-southeast-2'),
+    # 如果环境变量存在，显式传入；否则 boto3 会自动读取配置文件。
     **({} if not os.getenv('AWS_ACCESS_KEY_ID') else {
         'aws_access_key_id': os.getenv('AWS_ACCESS_KEY_ID'),
         'aws_secret_access_key': os.getenv('AWS_SECRET_ACCESS_KEY')
-    })
-)
+    }),
+}
+
+dynamodb = boto3.resource('dynamodb', **DYNAMODB_CONNECTION_KWARGS)
+# Resource 的 meta.client 会自动注入高层 AttributeValue 转换；事务使用独立低层客户端，
+# 避免与下面显式 TypeSerializer 叠加导致 Key 被二次序列化。
+dynamodb_transaction_client = boto3.client('dynamodb', **DYNAMODB_CONNECTION_KWARGS)
 
 # 表名常量
 TABLES = {
@@ -116,6 +124,8 @@ class DynamoDBClient:
     """DynamoDB 客户端封装类"""
     
     def __init__(self):
+        self.dynamodb = dynamodb
+        self.transaction_client = dynamodb_transaction_client
         self.tables = {name: dynamodb.Table(table_name) for name, table_name in TABLES.items()}
     
     # ==================== Users 操作方法 ====================
@@ -285,60 +295,131 @@ class DynamoDBClient:
             traceback.print_exc()
             return False
     
+    def _build_request_update_params(
+        self,
+        request_id: str,
+        update_data: dict,
+        remove_fields: list = None,
+    ) -> Optional[dict]:
+        """构建资源 API 与事务 API 共用的 Request 更新表达式。"""
+        set_expr_parts = []
+        remove_expr_parts = []
+        expr_attr_names = {}
+        expr_attr_values = {}
+
+        for key, value in update_data.items():
+            attr_name = f"#{key}"
+            attr_value = f":{key}"
+            set_expr_parts.append(f"{attr_name} = {attr_value}")
+            expr_attr_names[attr_name] = key
+            if key in ['config_data', 'changes', 'original_config', 'tags']:
+                value = json.dumps(value) if not isinstance(value, str) else value
+            expr_attr_values[attr_value] = convert_to_dynamodb_item({key: value})[key]
+
+        if remove_fields:
+            for field in remove_fields:
+                attr_name = f"#{field}"
+                remove_expr_parts.append(attr_name)
+                expr_attr_names[attr_name] = field
+
+        update_expr_parts = []
+        if set_expr_parts:
+            update_expr_parts.append(f"SET {', '.join(set_expr_parts)}")
+        if remove_expr_parts:
+            update_expr_parts.append(f"REMOVE {', '.join(remove_expr_parts)}")
+        if not update_expr_parts:
+            return None
+
+        update_params = {
+            'Key': {'request_id': request_id},
+            'UpdateExpression': " ".join(update_expr_parts),
+        }
+        if expr_attr_names:
+            update_params['ExpressionAttributeNames'] = expr_attr_names
+        if expr_attr_values:
+            update_params['ExpressionAttributeValues'] = expr_attr_values
+        return update_params
+
     def update_request(self, request_id: str, update_data: dict, remove_fields: list = None) -> bool:
-        """更新请求"""
+        """更新请求。"""
         try:
-            # 构建更新表达式
-            set_expr_parts = []
-            remove_expr_parts = []
-            expr_attr_names = {}
-            expr_attr_values = {}
-            
-            # 处理 SET 操作
-            for key, value in update_data.items():
-                attr_name = f"#{key}"
-                attr_value = f":{key}"
-                set_expr_parts.append(f"{attr_name} = {attr_value}")
-                expr_attr_names[attr_name] = key
-                # 处理 JSON 字段
-                if key in ['config_data', 'changes', 'original_config', 'tags']:
-                    value = json.dumps(value) if not isinstance(value, str) else value
-                expr_attr_values[attr_value] = convert_to_dynamodb_item({key: value})[key]
-            
-            # 处理 REMOVE 操作
-            if remove_fields:
-                for field in remove_fields:
-                    attr_name = f"#{field}"
-                    remove_expr_parts.append(attr_name)
-                    expr_attr_names[attr_name] = field
-            
-            # 构建完整的更新表达式
-            update_expr_parts = []
-            if set_expr_parts:
-                update_expr_parts.append(f"SET {', '.join(set_expr_parts)}")
-            if remove_expr_parts:
-                update_expr_parts.append(f"REMOVE {', '.join(remove_expr_parts)}")
-            
-            if not update_expr_parts:
+            update_params = self._build_request_update_params(request_id, update_data, remove_fields)
+            if not update_params:
                 return False
-            
-            update_expr = " ".join(update_expr_parts)
-            
-            # 构建update_item参数
-            update_params = {
-                'Key': {'request_id': request_id},
-                'UpdateExpression': update_expr
-            }
-            
-            if expr_attr_names:
-                update_params['ExpressionAttributeNames'] = expr_attr_names
-            if expr_attr_values:
-                update_params['ExpressionAttributeValues'] = expr_attr_values
-            
             self.tables['requests'].update_item(**update_params)
             return True
         except ClientError as e:
             print(f"Error updating request: {e}")
+            return False
+
+    def update_request_with_activity(
+        self,
+        request_id: str,
+        update_data: dict,
+        activity_data: dict,
+        remove_fields: list = None,
+    ) -> bool:
+        """使用 DynamoDB 事务原子更新 Request 并创建一条 Activity。"""
+        try:
+            update_params = self._build_request_update_params(
+                request_id,
+                update_data,
+                remove_fields,
+            )
+            if not update_params:
+                return False
+            serializer = TypeSerializer()
+            activity_item = convert_to_dynamodb_item(activity_data)
+            transaction_update = {
+                'TableName': TABLES['requests'],
+                'Key': {
+                    key: serializer.serialize(value)
+                    for key, value in update_params['Key'].items()
+                },
+                'UpdateExpression': update_params['UpdateExpression'],
+                'ExpressionAttributeNames': update_params['ExpressionAttributeNames'],
+                'ExpressionAttributeValues': {
+                    key: serializer.serialize(value)
+                    for key, value in update_params['ExpressionAttributeValues'].items()
+                },
+            }
+            self.transaction_client.transact_write_items(
+                TransactItems=[
+                    {'Update': transaction_update},
+                    {
+                        'Put': {
+                            'TableName': TABLES['activities'],
+                            'Item': {
+                                key: serializer.serialize(value)
+                                for key, value in activity_item.items()
+                            },
+                        }
+                    },
+                ]
+            )
+            return True
+        except ClientError as e:
+            error = e.response.get('Error', {})
+            cancellation_reasons = [
+                {
+                    'index': index,
+                    'operation': 'UpdateRequest' if index == 0 else 'PutActivity',
+                    'code': reason.get('Code'),
+                    'message': reason.get('Message'),
+                }
+                for index, reason in enumerate(e.response.get('CancellationReasons') or [])
+                if isinstance(reason, dict)
+            ]
+            logger.error(
+                "DynamoDB transaction failed: request_id=%s, operations=%s, "
+                "error_code=%s, error_message=%s, cancellation_reasons=%s, aws_request_id=%s",
+                request_id,
+                f"Update:{TABLES['requests']},Put:{TABLES['activities']}",
+                error.get('Code', 'Unknown'),
+                error.get('Message', str(e)),
+                cancellation_reasons,
+                e.response.get('ResponseMetadata', {}).get('RequestId'),
+            )
             return False
     
     def delete_request(self, request_id: str) -> bool:

@@ -1852,7 +1852,7 @@ const DashboardOriginal = () => {
                       color: '#374151',
                       background: '#f9fafb',
                       width: 'auto',
-                      minWidth: '180px',
+                      minWidth: '150px',
                       whiteSpace: 'nowrap',
                       fontSize: '12px',
                       lineHeight: '1.3'

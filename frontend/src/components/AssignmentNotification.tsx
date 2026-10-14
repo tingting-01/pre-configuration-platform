@@ -212,7 +212,6 @@ const AssignmentNotification: React.FC<AssignmentNotificationProps> = ({
     const resetReadIds = new Set<number>()
     setReadActivityIds(resetReadIds)
     saveReadActivityIds(resetReadIds)
-    setActivities([])
     setUnreadCount(0)
     setHasBeenRead(true)
     setLastAssignedCount(assignedCount)

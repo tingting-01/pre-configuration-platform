@@ -16,6 +16,11 @@ import hashlib
 import jwt
 from dotenv import load_dotenv
 from dynamodb_client import db_client
+from change_history import (
+    build_activity_data,
+    build_configuration_change_activity,
+    serialize_activity_for_api,
+)
 from urllib import request as urllib_request
 from urllib import parse as urllib_parse
 from urllib.error import HTTPError, URLError
@@ -608,7 +613,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         print(f"=== JWT Token Verification ===")
         print(f"Token: {credentials.credentials[:50]}...")
         print(f"Token length: {len(credentials.credentials)}")
-        print(f"JWT Secret: {JWT_SECRET}")
+        # print(f"JWT Secret: {JWT_SECRET}")
         print(f"JWT Algorithm: {JWT_ALGORITHM}")
         
         # 验证JWT token
@@ -629,7 +634,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             print(f"❌ User not found in database: {email}")
             raise HTTPException(status_code=401, detail="User not found")
         
-        print(f"✅ User found: {user}")
+        # print(f"✅ User found: {user}")
         user_dict = {
             "id": user.get("id"),
             "email": user.get("email"), 
@@ -672,10 +677,10 @@ async def login(user_data: UserLogin):
         
         # 验证密码
         print(f"Login attempt: email={user_data.email}")
-        print(f"Stored hash: {password_hash}")
-        print(f"Input password: {user_data.password}")
-        print(f"Input hash: {get_password_hash(user_data.password)}")
-        print(f"Password match: {verify_password(user_data.password, password_hash)}")
+        # print(f"Stored hash: {password_hash}")
+        # print(f"Input password: {user_data.password}")
+        # print(f"Input hash: {get_password_hash(user_data.password)}")
+        # print(f"Password match: {verify_password(user_data.password, password_hash)}")
         
         if not verify_password(user_data.password, password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -831,40 +836,84 @@ def _slim_config_data_for_request_list(req: dict) -> dict:
 
 def _get_requests_list_payload_sync(current_user: dict) -> List[dict]:
     """同步构建请求列表；由 get_requests 通过 asyncio.to_thread 调用，避免阻塞事件循环。"""
+    request_started_at = time.perf_counter()
     user_role = current_user.get('role') or get_user_role(current_user.get('email', ''))
-    if can_view_all(user_role):
-        all_requests = db_client.scan_requests_for_list()
-    else:
-        all_requests = db_client.query_requests_by_user_for_list(current_user['id'])
+    query_mode = 'all' if can_view_all(user_role) else 'own'
+    stage = 'request_query'
+    print(
+        f"⏱️ [requests] 开始: user_id={current_user.get('id')}, mode={query_mode}",
+        flush=True,
+    )
 
-    user_ids = list(set(req.get('user_id') for req in all_requests if req.get('user_id')))
-    users_dict = db_client.get_users_by_ids(user_ids) if user_ids else {}
+    try:
+        request_query_started_at = time.perf_counter()
+        if query_mode == 'all':
+            all_requests = db_client.scan_requests_for_list()
+        else:
+            all_requests = db_client.query_requests_by_user_for_list(current_user['id'])
+        request_query_elapsed = time.perf_counter() - request_query_started_at
+        print(
+            "⏱️ [requests] 请求查询完成: "
+            f"mode={query_mode}, count={len(all_requests)}, "
+            f"elapsed={request_query_elapsed:.3f}s",
+            flush=True,
+        )
 
-    requests: List[dict] = []
-    for req in all_requests:
-        creator_email = None
-        user_id = req.get('user_id')
-        if user_id:
-            creator = users_dict.get(user_id)
-            creator_email = creator.get('email') if creator else None
+        stage = 'user_query'
+        user_ids = list(set(req.get('user_id') for req in all_requests if req.get('user_id')))
+        user_query_started_at = time.perf_counter()
+        users_dict = db_client.get_users_by_ids(user_ids) if user_ids else {}
+        user_query_elapsed = time.perf_counter() - user_query_started_at
+        print(
+            "⏱️ [requests] 用户关联完成: "
+            f"requested={len(user_ids)}, found={len(users_dict)}, "
+            f"elapsed={user_query_elapsed:.3f}s",
+            flush=True,
+        )
 
-        requests.append({
-            "id": req.get('request_id'),
-            "companyName": req.get('company_name'),
-            "rakId": req.get('rak_id'),
-            "configId": req.get('config_id'),
-            "submitTime": req.get('submit_time'),
-            "status": req.get('status', 'Open'),
-            "assignee": req.get('assignee', ''),
-            "configData": _slim_config_data_for_request_list(req),
-            "changes": {},
-            "originalConfig": {},
-            "tags": req.get('tags', []),
-            "creatorEmail": creator_email
-        })
+        stage = 'payload_build'
+        payload_started_at = time.perf_counter()
+        requests: List[dict] = []
+        for req in all_requests:
+            creator_email = None
+            user_id = req.get('user_id')
+            if user_id:
+                creator = users_dict.get(user_id)
+                creator_email = creator.get('email') if creator else None
 
-    requests.sort(key=lambda x: x.get('submitTime', ''), reverse=True)
-    return requests
+            requests.append({
+                "id": req.get('request_id'),
+                "companyName": req.get('company_name'),
+                "rakId": req.get('rak_id'),
+                "configId": req.get('config_id'),
+                "submitTime": req.get('submit_time'),
+                "status": req.get('status', 'Open'),
+                "assignee": req.get('assignee', ''),
+                "configData": _slim_config_data_for_request_list(req),
+                "changes": {},
+                "originalConfig": {},
+                "tags": req.get('tags', []),
+                "creatorEmail": creator_email
+            })
+
+        requests.sort(key=lambda x: x.get('submitTime', ''), reverse=True)
+        payload_elapsed = time.perf_counter() - payload_started_at
+        print(
+            "📊 [requests] 查询完成: "
+            f"result={len(requests)}, request_query={request_query_elapsed:.3f}s, "
+            f"user_query={user_query_elapsed:.3f}s, payload={payload_elapsed:.3f}s, "
+            f"total={time.perf_counter() - request_started_at:.3f}s",
+            flush=True,
+        )
+        return requests
+    except Exception as e:
+        print(
+            "❌ [requests] 阶段失败: "
+            f"stage={stage}, elapsed={time.perf_counter() - request_started_at:.3f}s, "
+            f"error_type={type(e).__name__}, error={e}",
+            flush=True,
+        )
+        raise
 
 
 @app.get("/api/requests")
@@ -873,8 +922,6 @@ async def get_requests(current_user: dict = Depends(get_current_user)):
     try:
         return await asyncio.to_thread(_get_requests_list_payload_sync, current_user)
     except Exception as e:
-        print(f"❌ Error in get_requests: {e}")
-        print(f"Error type: {type(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -989,13 +1036,13 @@ async def create_request(request_data: RequestCreate, current_user: dict = Depen
         # 如果活动记录创建失败，不影响主请求的创建
         try:
             creator_name = current_user.get("name") or current_user.get("email", "Unknown")
-            activity_data = {
-                'request_id': request_id,
-                'user_id': current_user["id"],
-                'activity_type': 'created',
-                'description': f"Request created by {creator_name} for {request_data.companyName}",
-                'created_at': created_at
-            }
+            activity_data = build_activity_data(
+                request_id,
+                current_user,
+                'created',
+                f"Request created by {creator_name} for {request_data.companyName}",
+                created_at=created_at,
+            )
             db_client.create_activity(activity_data)
         except Exception as activity_error:
             # 活动记录创建失败不影响主请求，只记录日志
@@ -1192,8 +1239,28 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         if not update_data and not remove_fields:
             raise HTTPException(status_code=400, detail="No fields to update")
         
-        # 执行更新（先确保 config_id / status 已入库）
-        if not db_client.update_request(request_id, update_data, remove_fields=remove_fields):
+        configuration_activity = build_configuration_change_activity(
+            request_id,
+            request.get('config_data') or {},
+            request_data,
+            current_user,
+        )
+
+        # 有配置差异时，Request 更新与配置活动必须在同一事务中提交。
+        if configuration_activity:
+            update_succeeded = db_client.update_request_with_activity(
+                request_id,
+                update_data,
+                configuration_activity,
+                remove_fields=remove_fields,
+            )
+        else:
+            update_succeeded = db_client.update_request(
+                request_id,
+                update_data,
+                remove_fields=remove_fields,
+            )
+        if not update_succeeded:
             raise HTTPException(status_code=500, detail="Failed to update request")
 
         # 如果到达最终态，则尝试同步到外部系统；失败则落库并交由后台重试
@@ -1261,13 +1328,12 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
         if "status" in request_data and request_data["status"] != old_status:
             new_status = request_data["status"]
             operator_name = current_user.get("name") or current_user.get("email", "Unknown")
-            activity_data = {
-                'request_id': request_id,
-                'user_id': current_user["id"],
-                'activity_type': 'status_changed',
-                'description': f"{operator_name} updated workflow process of request {request_id} from '{old_status}' to '{new_status}'",
-                'created_at': datetime.now().isoformat()
-            }
+            activity_data = build_activity_data(
+                request_id,
+                current_user,
+                'status_changed',
+                f"{operator_name} updated workflow process of request {request_id} from '{old_status}' to '{new_status}'",
+            )
             db_client.create_activity(activity_data)
         
         # 记录assignee变化
@@ -1296,13 +1362,12 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                     
                     description = f"{operator_name} assigned request {request_id} to {assignee_name}"
                     print(f"📝 Recording assignment: {description}")
-                    activity_data = {
-                        'request_id': request_id,
-                        'user_id': current_user["id"],
-                        'activity_type': 'assigned',
-                        'description': description,
-                        'created_at': datetime.now().isoformat()
-                    }
+                    activity_data = build_activity_data(
+                        request_id,
+                        current_user,
+                        'assigned',
+                        description,
+                    )
                     db_client.create_activity(activity_data)
                 else:
                     # 取消分配
@@ -1316,13 +1381,12 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
                     else:
                         description = f"{operator_name} unassigned this request"
                     print(f"📝 Recording unassignment: {description}")
-                    activity_data = {
-                        'request_id': request_id,
-                        'user_id': current_user["id"],
-                        'activity_type': 'unassigned',
-                        'description': description,
-                        'created_at': datetime.now().isoformat()
-                    }
+                    activity_data = build_activity_data(
+                        request_id,
+                        current_user,
+                        'unassigned',
+                        description,
+                    )
                     db_client.create_activity(activity_data)
             else:
                 print(f"⚠️ Assignee unchanged (both are '{old_assignee_value}'), skipping activity record")
@@ -1720,13 +1784,12 @@ async def create_comment(request_id: str, comment_data: CommentCreate, current_u
             raise HTTPException(status_code=500, detail="Failed to create comment")
         
         # 创建活动记录
-        activity_data = {
-            'request_id': request_id,
-            'user_id': int(current_user["id"]),
-            'activity_type': 'comment',
-            'description': f"Added a comment: {comment_data.content[:50]}...",
-            'created_at': datetime.now().isoformat()
-        }
+        activity_data = build_activity_data(
+            request_id,
+            current_user,
+            'comment',
+            f"Added a comment: {comment_data.content[:50]}...",
+        )
         db_client.create_activity(activity_data)
         
         print(f"✅ Comment created successfully")
@@ -1775,23 +1838,16 @@ async def get_activities(request_id: str, current_user: dict = Depends(get_curre
         # 从 DynamoDB 获取活动
         activities_data = db_client.get_activities_by_request(request_id)
         
-        activities = []
-        for activity in activities_data:
-            # 获取用户信息
-            user_id = activity.get('user_id')
-            user = None
-            if user_id:
-                all_users = db_client.get_all_users()
-                user = next((u for u in all_users if u.get('id') == user_id), None)
-            
-            activities.append({
-                "id": activity.get('id') or activity.get('created_at'),
-                "activityType": activity.get('activity_type', ''),
-                "description": activity.get('description', ''),
-                "createdAt": activity.get('created_at', ''),
-                "authorName": user.get('name', 'Unknown User') if user else "Unknown User",
-                "authorEmail": user.get('email', 'unknown@example.com') if user else "unknown@example.com"
-            })
+        user_ids = list({
+            activity.get('user_id')
+            for activity in activities_data
+            if activity.get('user_id') is not None
+        })
+        users_by_id = db_client.get_users_by_ids(user_ids) if user_ids else {}
+        activities = [
+            serialize_activity_for_api(activity, users_by_id)
+            for activity in activities_data
+        ]
         
         print(f"✅ Found {len(activities)} activities")
         return activities
@@ -1807,76 +1863,112 @@ def _get_my_assignments_sync(current_user: dict) -> List[dict]:
     user_email = current_user.get("email")
     user_id = current_user.get("id")
     if not user_email or not user_id:
+        print("⚠️ [assignments] 跳过: missing_authenticated_identity", flush=True)
         return []
 
-    # 当前用户创建的请求需要提醒 assigned 和 status_changed。
-    my_request_ids = set(db_client.query_request_ids_by_user(user_id))
+    stage = 'owned_request_query'
+    print(f"⏱️ [assignments] 开始: user_id={user_id}", flush=True)
 
-    # 分配给当前用户的请求需要提醒 assigned 和 unassigned。
-    assigned_request_ids = set(db_client.query_request_ids_by_assignee(user_email))
-    all_request_ids = my_request_ids | assigned_request_ids
-
-    activity_query_started_at = time.perf_counter()
-    latest_activities = {}
-    activity_count = 0
-    for request_id in all_request_ids:
-        if request_id in my_request_ids:
-            activity_types = ['assigned', 'status_changed']
-        else:
-            activity_types = ['assigned', 'unassigned']
-
-        activities = db_client.get_assignment_activities_by_request(
-            request_id,
-            activity_types,
+    try:
+        owned_query_started_at = time.perf_counter()
+        # 当前用户创建的请求需要提醒 assigned 和 status_changed。
+        my_request_ids = set(db_client.query_request_ids_by_user(user_id))
+        owned_query_elapsed = time.perf_counter() - owned_query_started_at
+        print(
+            "⏱️ [assignments] 自建请求查询完成: "
+            f"count={len(my_request_ids)}, elapsed={owned_query_elapsed:.3f}s",
+            flush=True,
         )
-        activity_count += len(activities)
-        for activity in activities:
-            activity_type = activity.get('activity_type')
-            key = (request_id, activity_type)
-            existing = latest_activities.get(key)
-            activity_created_at = activity.get('created_at') or ''
-            existing_created_at = existing.get('created_at') or '' if existing else ''
-            if existing is None or activity_created_at > existing_created_at:
-                latest_activities[key] = activity
-    activity_query_elapsed = time.perf_counter() - activity_query_started_at
 
-    # 原实现对每条活动都扫描一次 users 表。现在收集不重复作者后一次批量查询。
-    author_ids = {
-        activity.get('user_id')
-        for activity in latest_activities.values()
-        if activity.get('user_id') is not None
-    }
-    author_query_started_at = time.perf_counter()
-    authors_by_id = db_client.get_users_by_ids(list(author_ids)) if author_ids else {}
-    author_query_elapsed = time.perf_counter() - author_query_started_at
+        stage = 'assigned_request_query'
+        assigned_query_started_at = time.perf_counter()
+        # 分配给当前用户的请求需要提醒 assigned 和 unassigned。
+        assigned_request_ids = set(db_client.query_request_ids_by_assignee(user_email))
+        assigned_query_elapsed = time.perf_counter() - assigned_query_started_at
+        all_request_ids = my_request_ids | assigned_request_ids
+        print(
+            "⏱️ [assignments] 请求 ID 查询完成: "
+            f"owned={len(my_request_ids)}, assigned={len(assigned_request_ids)}, "
+            f"unique={len(all_request_ids)}, owned_query={owned_query_elapsed:.3f}s, "
+            f"assigned_query={assigned_query_elapsed:.3f}s",
+            flush=True,
+        )
 
-    result_activities = []
-    for activity in latest_activities.values():
-        author_id = activity.get('user_id')
-        author = authors_by_id.get(author_id)
-        result_activities.append({
-            "id": activity.get('id') or activity.get('created_at'),
-            "requestId": activity.get('request_id'),
-            "activityType": activity.get('activity_type'),
-            "description": activity.get('description'),
-            "createdAt": activity.get('created_at') or '',
-            "authorName": author.get('name') if author else "Unknown",
-            "authorEmail": author.get('email') if author else "unknown@example.com"
-        })
+        stage = 'activity_queries'
+        activity_query_started_at = time.perf_counter()
+        latest_activities = {}
+        activity_count = 0
+        for request_id in all_request_ids:
+            if request_id in my_request_ids:
+                activity_types = ['assigned', 'status_changed']
+            else:
+                activity_types = ['assigned', 'unassigned']
 
-    result_activities.sort(key=lambda activity: activity['createdAt'], reverse=True)
-    print(
-        "📊 [assignments] 查询完成: "
-        f"requests={len(all_request_ids)}, "
-        f"activities={activity_count}, "
-        f"result={len(result_activities)}, "
-        f"authors={len(author_ids)}, "
-        f"activity_query={activity_query_elapsed:.3f}s, "
-        f"author_query={author_query_elapsed:.3f}s, "
-        f"total={time.perf_counter() - request_started_at:.3f}s",
-        flush=True,
-    )
-    return result_activities
+            activities = db_client.get_assignment_activities_by_request(
+                request_id,
+                activity_types,
+            )
+            activity_count += len(activities)
+            for activity in activities:
+                activity_type = activity.get('activity_type')
+                key = (request_id, activity_type)
+                existing = latest_activities.get(key)
+                activity_created_at = activity.get('created_at') or ''
+                existing_created_at = existing.get('created_at') or '' if existing else ''
+                if existing is None or activity_created_at > existing_created_at:
+                    latest_activities[key] = activity
+        activity_query_elapsed = time.perf_counter() - activity_query_started_at
+        print(
+            "⏱️ [assignments] 活动查询完成: "
+            f"requests={len(all_request_ids)}, scanned={activity_count}, "
+            f"latest={len(latest_activities)}, elapsed={activity_query_elapsed:.3f}s",
+            flush=True,
+        )
+
+        stage = 'author_query'
+        # 收集不重复作者后一次批量查询。
+        author_ids = {
+            activity.get('user_id')
+            for activity in latest_activities.values()
+            if activity.get('user_id') is not None
+        }
+        author_query_started_at = time.perf_counter()
+        authors_by_id = db_client.get_users_by_ids(list(author_ids)) if author_ids else {}
+        author_query_elapsed = time.perf_counter() - author_query_started_at
+
+        stage = 'payload_build'
+        result_activities = []
+        for activity in latest_activities.values():
+            author_id = activity.get('user_id')
+            author = authors_by_id.get(author_id)
+            result_activities.append({
+                "id": activity.get('id') or activity.get('created_at'),
+                "requestId": activity.get('request_id'),
+                "activityType": activity.get('activity_type'),
+                "description": activity.get('description'),
+                "createdAt": activity.get('created_at') or '',
+                "authorName": author.get('name') if author else "Unknown",
+                "authorEmail": author.get('email') if author else "unknown@example.com"
+            })
+
+        result_activities.sort(key=lambda activity: activity['createdAt'], reverse=True)
+        print(
+            "📊 [assignments] 查询完成: "
+            f"requests={len(all_request_ids)}, activities={activity_count}, "
+            f"result={len(result_activities)}, authors={len(author_ids)}, "
+            f"author_query={author_query_elapsed:.3f}s, "
+            f"total={time.perf_counter() - request_started_at:.3f}s",
+            flush=True,
+        )
+        return result_activities
+    except Exception as e:
+        print(
+            "❌ [assignments] 阶段失败: "
+            f"stage={stage}, elapsed={time.perf_counter() - request_started_at:.3f}s, "
+            f"error_type={type(e).__name__}, error={e}",
+            flush=True,
+        )
+        raise
 
 
 @app.get("/api/users/me/assignments")
@@ -1885,10 +1977,6 @@ async def get_my_assignments(current_user: dict = Depends(get_current_user)):
     try:
         return await asyncio.to_thread(_get_my_assignments_sync, current_user)
     except Exception as e:
-        print(
-            f"❌ [assignments] 查询失败: error_type={type(e).__name__}, error={e}",
-            flush=True,
-        )
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1903,13 +1991,12 @@ async def create_activity(request_id: str, activity_data: ActivityCreate, curren
             raise HTTPException(status_code=404, detail="Request not found")
         
         # 创建活动数据
-        activity_item = {
-            'request_id': request_id,
-            'user_id': int(current_user["id"]),
-            'activity_type': activity_data.activity_type,
-            'description': activity_data.description,
-            'created_at': datetime.now().isoformat()
-        }
+        activity_item = build_activity_data(
+            request_id,
+            current_user,
+            activity_data.activity_type,
+            activity_data.description,
+        )
         
         if not db_client.create_activity(activity_item):
             raise HTTPException(status_code=500, detail="Failed to create activity")

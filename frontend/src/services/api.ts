@@ -115,13 +115,13 @@ export interface CreateRequestRequest {
 export const authAPI = {
   login: async (data: LoginRequest): Promise<LoginResponse> => {
     console.log('API: Making login request to:', `${API_BASE_URL}/api/auth/login`)
-    console.log('API: Request data:', data)
+    // console.log('API: Request data:', data)
     try {
       const response = await api.post('/api/auth/login', data)
-      console.log('API: Login response:', response.data)
+      // console.log('API: Login response:', response.data)
       return response.data
     } catch (error) {
-      console.error('API: Login error:', error)
+      // console.error('API: Login error:', error)
       throw error
     }
   },

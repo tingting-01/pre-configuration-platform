@@ -331,8 +331,9 @@ const TemplatesPage = () => {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* returnTo参数用于在配置完成后返回模板列表页面 */}
           <button
-            onClick={() => navigate('/configuration')}
+            onClick={() => navigate('/configuration', { state: { returnTo: '/templates' } })}
             style={{
               padding: '8px 16px',
               background: '#7c3aed',

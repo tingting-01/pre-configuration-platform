@@ -114,6 +114,7 @@ export const filterSystemConfig = (systemConfig: any) => {
   const filtered: any = {}
   const defaults = {
     wisdmEnabled: true,
+    wisdmWhitelist: false,
     wisdmConnect: false,
     wisdmOrgName: '',
     wisdmUrl: '',

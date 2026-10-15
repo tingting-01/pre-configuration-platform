@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { requestAPI, templateAPI, getApiBaseUrl, type CreateRequestRequest } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
 import { useQuery, useQueryClient } from 'react-query'
@@ -10,6 +10,7 @@ import { applyTemplateToForm, createTemplateFromConfig } from '../utils/template
 
 const ConfigurationComplete = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
   // 复制新建参数
@@ -40,6 +41,7 @@ const ConfigurationComplete = () => {
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   
   // 检查认证状态
   const { isAuthenticated, token } = useAuthStore()
@@ -265,6 +267,7 @@ const ConfigurationComplete = () => {
     
     // System Configuration
     wisdmEnabled: true,
+    wisdmWhitelist: false,
     wisdmConnect: false,
     wisdmOrgName: '',
     wisdmUrl: '',
@@ -707,6 +710,7 @@ const ConfigurationComplete = () => {
         // System Configuration
         if (config.system) {
           newData.wisdmEnabled = config.system.wisdmEnabled ?? true
+          newData.wisdmWhitelist = config.system.wisdmWhitelist ?? false
           newData.wisdmConnect = config.system.wisdmConnect ?? false
           newData.wisdmOrgName = config.system.wisdmOrgName || ''
           newData.wisdmUrl = config.system.wisdmUrl || ''
@@ -1706,6 +1710,7 @@ const ConfigurationComplete = () => {
         },
         system: {
           wisdmEnabled: formData.wisdmEnabled,
+          wisdmWhitelist: formData.wisdmWhitelist,
           wisdmConnect: formData.wisdmConnect,
           wisdmOrgName: formData.wisdmOrgName,
           wisdmUrl: formData.wisdmUrl,
@@ -1825,6 +1830,21 @@ const ConfigurationComplete = () => {
       setSubmitProgress('')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const handleConfirmCancel = () => {
+    // 如果是编辑模式，则返回编辑前的页面
+    if (editRequestId) {
+      navigate(-1)
+    }
+    // 如果是从模板创建，则返回模板列表页面
+    else if (editTemplateId || location.state?.returnTo === '/templates') {
+      navigate('/templates')
+    }
+    // 如果是从新建页面创建，则返回Dashboard页面
+    else {
+      navigate('/dashboard')
     }
   }
 
@@ -5799,6 +5819,17 @@ const ConfigurationComplete = () => {
                   
                   {formData.wisdmEnabled && (
                     <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.wisdmWhitelist}
+                          onChange={(e) => handleInputChange('wisdmWhitelist', e.target.checked)}
+                          style={{ width: '16px', height: '16px', accentColor: '#7c3aed' }}
+                        />
+                        <label style={{ fontSize: '14px', color: '#1f2937', cursor: 'pointer' }}>
+                          WisDM Whitelist
+                        </label>
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="checkbox"
@@ -6916,6 +6947,24 @@ const ConfigurationComplete = () => {
             marginTop: '32px'
           }}>
             <button
+              type="button"
+              onClick={() => setShowCancelConfirm(true)}
+              disabled={isLoading}
+              style={{
+                padding: '12px 24px',
+                background: '#ffffff',
+                color: isLoading ? '#9ca3af' : '#374151',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '16px',
+                fontWeight: '500',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Cancel
+            </button>
+            <button
               type="submit"
               onClick={handleSubmit}
               disabled={isLoading || !isCopySourceReady}
@@ -7294,6 +7343,7 @@ const ConfigurationComplete = () => {
                         },
                         system: {
                           wisdmEnabled: formData.wisdmEnabled,
+                          wisdmWhitelist: formData.wisdmWhitelist,
                           wisdmConnect: formData.wisdmConnect,
                           wisdmOrgName: formData.wisdmOrgName,
                           wisdmUrl: formData.wisdmUrl,
@@ -7380,6 +7430,69 @@ const ConfigurationComplete = () => {
                   }}
                 >
                   Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cancel Confirmation Dialog */}
+        {showCancelConfirm && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="cancel-confirm-title" style={{
+              background: '#ffffff',
+              borderRadius: '0.5rem',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '90%',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+            }}>
+              <h3 id="cancel-confirm-title" style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: '600' }}>
+                Discard changes?
+              </h3>
+              <p style={{ margin: '0 0 24px 0', color: '#6b7280', fontSize: '14px' }}>
+                Any unsaved changes will be lost.
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowCancelConfirm(false)}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#f3f4f6',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '0.375rem',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Continue Editing
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCancel}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '0.375rem',
+                    fontSize: '14px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Discard
                 </button>
               </div>
             </div>

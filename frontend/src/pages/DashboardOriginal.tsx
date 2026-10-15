@@ -10,6 +10,7 @@ import { matchesSearchConfig } from '../utils/searchUtils'
 import { exportMultipleRequestsToExcel } from '../utils/exportUtils'
 import { useToast } from '../hooks/useToast'
 import ToastContainer from '../components/ToastContainer'
+import { NON_EDITABLE_REQUEST_STATUSES } from '../constants'
 
 const DashboardOriginal = () => {
   const queryClient = useQueryClient()
@@ -1892,10 +1893,16 @@ const DashboardOriginal = () => {
                       fontWeight: '500',
                       color: '#374151',
                       background: '#f9fafb',
-                      width: 'auto',
-                      minWidth: '150px',
+                      width: '180px',
+                      minWidth: '180px',
+                      maxWidth: '180px',
                       fontSize: '12px',
-                      lineHeight: '1.3'
+                      lineHeight: '1.3',
+                      position: 'sticky',
+                      right: 0,
+                      zIndex: 2,
+                      borderLeft: '1px solid #e5e7eb',
+                      boxShadow: '-4px 0 6px -6px rgba(0, 0, 0, 0.35)'
                     }}>
                       Actions
                     </th>
@@ -2338,10 +2345,21 @@ const DashboardOriginal = () => {
                           </span>
                         </div>
                       </td>
-                      <td data-no-row-click style={{ padding: '4px 10px' }}>
+                      <td data-no-row-click style={{
+                        padding: '4px 10px',
+                        width: '180px',
+                        minWidth: '180px',
+                        maxWidth: '180px',
+                        position: 'sticky',
+                        right: 0,
+                        zIndex: 1,
+                        background: hoveredRequestId === request.id ? '#E9E1FD' : '#ffffff',
+                        borderLeft: '1px solid #e5e7eb',
+                        boxShadow: '-4px 0 6px -6px rgba(0, 0, 0, 0.35)'
+                      }}>
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {(() => {
-                            const isReleased = ['done', 'released'].includes((request.status || '').toLowerCase())
+                            const isReleased = NON_EDITABLE_REQUEST_STATUSES.includes((request.status || '').toLowerCase())
                             return (
                               <>
                           <button

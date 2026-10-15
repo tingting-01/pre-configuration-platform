@@ -613,7 +613,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         print(f"=== JWT Token Verification ===")
         print(f"Token: {credentials.credentials[:50]}...")
         print(f"Token length: {len(credentials.credentials)}")
-        print(f"JWT Secret: {JWT_SECRET}")
+        # print(f"JWT Secret: {JWT_SECRET}")
         print(f"JWT Algorithm: {JWT_ALGORITHM}")
         
         # 验证JWT token
@@ -634,7 +634,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             print(f"❌ User not found in database: {email}")
             raise HTTPException(status_code=401, detail="User not found")
         
-        print(f"✅ User found: {user}")
+        # print(f"✅ User found: {user}")
         user_dict = {
             "id": user.get("id"),
             "email": user.get("email"), 
@@ -677,10 +677,10 @@ async def login(user_data: UserLogin):
         
         # 验证密码
         print(f"Login attempt: email={user_data.email}")
-        print(f"Stored hash: {password_hash}")
-        print(f"Input password: {user_data.password}")
-        print(f"Input hash: {get_password_hash(user_data.password)}")
-        print(f"Password match: {verify_password(user_data.password, password_hash)}")
+        # print(f"Stored hash: {password_hash}")
+        # print(f"Input password: {user_data.password}")
+        # print(f"Input hash: {get_password_hash(user_data.password)}")
+        # print(f"Password match: {verify_password(user_data.password, password_hash)}")
         
         if not verify_password(user_data.password, password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials")

@@ -85,8 +85,8 @@ const ConfigurationComplete = () => {
   React.useEffect(() => {
     console.log('=== Authentication Check ===')
     console.log('isAuthenticated:', isAuthenticated)
-    console.log('token:', token)
-    console.log('localStorage auth-storage:', localStorage.getItem('auth-storage'))
+    // console.log('token:', token)
+    // console.log('localStorage auth-storage:', localStorage.getItem('auth-storage'))
     
     if (!isAuthenticated || !token) {
       console.log('User not authenticated, redirecting to login')
@@ -1536,7 +1536,7 @@ const ConfigurationComplete = () => {
     // 调试：检查认证状态
     const { token, isAuthenticated } = useAuthStore.getState()
     console.log('=== Configuration Submit Debug ===')
-    console.log('Token:', token)
+    // console.log('Token:', token)
     console.log('Is Authenticated:', isAuthenticated)
     console.log('Auth Storage:', localStorage.getItem('auth-storage'))
 

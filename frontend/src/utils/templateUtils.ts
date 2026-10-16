@@ -150,6 +150,7 @@ const CONFIG_TO_FORM_MAPPING: Record<string, string> = {
   
   // System
   'system.wisdmEnabled': 'wisdmEnabled',
+  'system.wisdmWhitelist': 'wisdmWhitelist',
   'system.wisdmConnect': 'wisdmConnect',
   'system.wisdmOrgName': 'wisdmOrgName',
   'system.wisdmUrl': 'wisdmUrl',
@@ -375,6 +376,7 @@ export function applyTemplateToForm(
     ntpServers: ['0.openwrt.pool.ntp.org'],
     logExpiration: '1-month',
     wisdmEnabled: false,
+    wisdmWhitelist: false,
     wisdmConnect: false,
     shareLog: false,
     sshDisable: false,

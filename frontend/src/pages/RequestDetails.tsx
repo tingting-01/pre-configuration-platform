@@ -2,6 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from 'react-query'
 import { requestAPI, Request } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
+import { NON_EDITABLE_REQUEST_STATUSES } from '../constants'
 import Comments from '../components/Comments'
 import History from '../components/History'
 import { useToast } from '../hooks/useToast'
@@ -857,6 +858,7 @@ const RequestDetails = () => {
     // 默认值定义
     const defaults = {
       wisdmEnabled: true,
+      wisdmWhitelist: false,
       wisdmConnect: false,
       wisdmOrgName: '',
       wisdmUrl: '',
@@ -1535,6 +1537,11 @@ const RequestDetails = () => {
     return stageIndex === currentStageIndex
   }
 
+  // 判断请求是否已发布
+  const isReleased = NON_EDITABLE_REQUEST_STATUSES.includes((request.status || '').toLowerCase())
+  // 判断是否可以编辑请求
+  const canEdit = (request.creatorEmail === user?.email || user?.role === 'admin') && !isReleased
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -1644,7 +1651,7 @@ const RequestDetails = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <button
-                  onClick={() => window.history.back()}
+                  onClick={() => navigate('/dashboard')}
                   className="mr-4 p-2 text-gray-400 hover:text-gray-600"
                 >
                   <ArrowLeft className="h-5 w-5" />
@@ -1659,6 +1666,14 @@ const RequestDetails = () => {
                 </div>
               </div>
               <div className="flex items-center space-x-4">
+                <button
+                  onClick={() => navigate(`/configuration?edit=${request.id}`)}
+                  disabled={!canEdit}
+                  title={isReleased ? 'Released requests cannot be edited' : canEdit ? 'Edit request' : 'You can only edit your own requests'}
+                  className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Edit
+                </button>
                 <button
                   onClick={handleExport}
                   disabled={isExporting}
@@ -3095,6 +3110,12 @@ const RequestDetails = () => {
                   System Configuration
                 </h3>
                 <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {config.system.wisdmWhitelist === true && (
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">WisDM Whitelist</dt>
+                      <dd className="mt-1 text-sm text-gray-900">Enabled</dd>
+                    </div>
+                  )}
                   {(() => {
                     const wisdmConnect = config.system.wisdmConnect;
                     // 默认值是false，如果是false则不显示

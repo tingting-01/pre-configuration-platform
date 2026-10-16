@@ -2357,7 +2357,7 @@ const DashboardOriginal = () => {
                         borderLeft: '1px solid #e5e7eb',
                         boxShadow: '-4px 0 6px -6px rgba(0, 0, 0, 0.35)'
                       }}>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {(() => {
                             const isReleased = NON_EDITABLE_REQUEST_STATUSES.includes((request.status || '').toLowerCase())
                             return (

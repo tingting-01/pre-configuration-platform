@@ -1888,7 +1888,7 @@ const DashboardOriginal = () => {
                     }}>
                       Creator
                     </th>
-                    <th className="table-fix-right" style={{
+                    <th style={{
                       padding: '6px 10px',
                       textAlign: 'left',
                       fontWeight: '500',
@@ -2345,7 +2345,7 @@ const DashboardOriginal = () => {
                           </span>
                         </div>
                       </td>
-                      <td data-no-row-click className="table-fix-right" style={{
+                      <td data-no-row-click style={{
                         padding: '4px 10px',
                         width: '180px',
                         minWidth: '180px',

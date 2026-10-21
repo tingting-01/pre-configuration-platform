@@ -297,15 +297,14 @@ const WisdmServicesPage = () => {
                   <th className="px-4 py-3 text-center">Whitelist</th>
                   <th className="px-4 py-3 text-center">Provisioning</th>
                   <th className="px-4 py-3">Workflow Process</th>
-                  <th className="table-fix-right px-4 py-3" style={{
+                  <th className="px-4 py-3" style={{
                     width: '180px',
                     minWidth: '180px',
                     maxWidth: '180px',
                     background: '#f9fafb',
                     position: 'sticky',
                     right: 0,
-                    zIndex: 2,
-                    borderLeft: '1px solid #e5e7eb',
+                    zIndex: 2
                   }}>Actions</th>
                 </tr>
               </thead>
@@ -365,14 +364,13 @@ const WisdmServicesPage = () => {
                           {updating ? <Loader2 className="pointer-events-none absolute right-7 h-3 w-3 animate-spin" /> : null}
                         </div>
                       </td>
-                      <td className="table-fix-right whitespace-nowrap bg-white px-4 py-4 group-hover:bg-gray-50" style={{
+                      <td className="whitespace-nowrap bg-white px-4 py-4 group-hover:bg-gray-50" style={{
                         width: '180px',
                         minWidth: '180px',
                         maxWidth: '180px',
                         position: 'sticky',
                         right: 0,
-                        zIndex: 1,
-                        borderLeft: '1px solid #e5e7eb',
+                        zIndex: 1
                       }}>
                         <Link to={`/wisdm-services/${record.recordId}`} className="btn bg-purple-800 px-3 py-2 text-white hover:bg-purple-900">
                           View

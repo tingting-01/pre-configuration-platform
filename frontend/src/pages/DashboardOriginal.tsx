@@ -1888,7 +1888,7 @@ const DashboardOriginal = () => {
                     }}>
                       Creator
                     </th>
-                    <th className="table-fix-right" style={{
+                    <th style={{
                       padding: '6px 10px',
                       textAlign: 'left',
                       fontWeight: '500',
@@ -1901,8 +1901,7 @@ const DashboardOriginal = () => {
                       lineHeight: '1.3',
                       position: 'sticky',
                       right: 0,
-                      zIndex: 2,
-                      borderLeft: '1px solid #e5e7eb'
+                      zIndex: 2
                     }}>
                       Actions
                     </th>
@@ -2345,7 +2344,7 @@ const DashboardOriginal = () => {
                           </span>
                         </div>
                       </td>
-                      <td data-no-row-click className="table-fix-right" style={{
+                      <td data-no-row-click style={{
                         padding: '4px 10px',
                         width: '180px',
                         minWidth: '180px',
@@ -2353,8 +2352,7 @@ const DashboardOriginal = () => {
                         position: 'sticky',
                         right: 0,
                         zIndex: 1,
-                        background: hoveredRequestId === request.id ? '#E9E1FD' : '#ffffff',
-                        borderLeft: '1px solid #e5e7eb'
+                        background: hoveredRequestId === request.id ? '#E9E1FD' : '#ffffff'
                       }}>
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {(() => {

@@ -304,8 +304,7 @@ const WisdmServicesPage = () => {
                     background: '#f9fafb',
                     position: 'sticky',
                     right: 0,
-                    zIndex: 2,
-                    borderLeft: '1px solid #e5e7eb',
+                    zIndex: 2
                   }}>Actions</th>
                 </tr>
               </thead>
@@ -371,8 +370,7 @@ const WisdmServicesPage = () => {
                         maxWidth: '180px',
                         position: 'sticky',
                         right: 0,
-                        zIndex: 1,
-                        borderLeft: '1px solid #e5e7eb',
+                        zIndex: 1
                       }}>
                         <Link to={`/wisdm-services/${record.recordId}`} className="btn bg-purple-800 px-3 py-2 text-white hover:bg-purple-900">
                           View

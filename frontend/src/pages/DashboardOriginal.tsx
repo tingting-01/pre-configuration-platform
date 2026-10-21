@@ -1901,8 +1901,7 @@ const DashboardOriginal = () => {
                       lineHeight: '1.3',
                       position: 'sticky',
                       right: 0,
-                      zIndex: 2,
-                      borderLeft: '1px solid #e5e7eb'
+                      zIndex: 2
                     }}>
                       Actions
                     </th>
@@ -2353,8 +2352,7 @@ const DashboardOriginal = () => {
                         position: 'sticky',
                         right: 0,
                         zIndex: 1,
-                        background: hoveredRequestId === request.id ? '#E9E1FD' : '#ffffff',
-                        borderLeft: '1px solid #e5e7eb'
+                        background: hoveredRequestId === request.id ? '#E9E1FD' : '#ffffff'
                       }}>
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {(() => {

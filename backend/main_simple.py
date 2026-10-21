@@ -21,6 +21,30 @@ from change_history import (
     build_configuration_change_activity,
     serialize_activity_for_api,
 )
+from wisdm_service import (
+    WORKFLOW_CREATED,
+    WisdmAssociationMismatchError,
+    WisdmDuplicateSOError,
+    WisdmRequestNotFoundError,
+    WisdmValidationError,
+    WisdmVersionConflictError,
+    actor_snapshot,
+    allowed_workflows,
+    build_auto_sync_plan,
+    build_wisdm_history_item,
+    conflicting_barcode_request_ids,
+    extract_preconfig_reference,
+    can_edit_wisdm_content,
+    can_update_wisdm_workflow,
+    filter_wisdm_records,
+    is_wisdm_internal_user,
+    normalize_jira_keys,
+    serialize_wisdm_record,
+    serialize_wisdm_record_detail,
+    resolve_manual_barcodes,
+    serialize_wisdm_record_list,
+    validate_barcode_associations,
+)
 from urllib import request as urllib_request
 from urllib import parse as urllib_parse
 from urllib.error import HTTPError, URLError
@@ -916,6 +940,304 @@ def _get_requests_list_payload_sync(current_user: dict) -> List[dict]:
         raise
 
 
+def _require_wisdm_internal(current_user: dict) -> None:
+    if not is_wisdm_internal_user(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail="WisDM Services is only available to RAK internal users",
+        )
+
+
+def _wisdm_permissions(current_user: dict, record: dict) -> tuple[bool, bool]:
+    return (
+        can_edit_wisdm_content(current_user, record),
+        can_update_wisdm_workflow(current_user),
+    )
+
+
+def _wisdm_expected_version(payload: dict) -> int:
+    if "version" not in payload:
+        raise HTTPException(status_code=400, detail="version is required")
+    try:
+        version = int(payload["version"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="version must be an integer")
+    if version < 1:
+        raise HTTPException(status_code=400, detail="version must be positive")
+    return version
+
+
+@app.get("/api/wisdm-service-records")
+async def get_wisdm_service_records(
+    search: Optional[str] = None,
+    filter: str = "ALL",
+    preconfigRequestId: Optional[str] = None,
+    barcode: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """查询全部 WisDM 服务记录。"""
+
+    _require_wisdm_internal(current_user)
+    try:
+        records = filter_wisdm_records(
+            db_client.scan_wisdm_service_records(),
+            search=search or "",
+            workflow_filter=filter,
+            preconfig_request_id=preconfigRequestId or "",
+            barcode=barcode or "",
+        )
+        return serialize_wisdm_record_list(
+            records,
+            lambda record: _wisdm_permissions(current_user, record),
+        )
+    except WisdmValidationError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
+@app.post("/api/wisdm-service-records", status_code=201)
+async def create_wisdm_service_record(
+    request_data: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """手工创建 WisDM 服务记录，Workflow 始终从 CREATED 开始。"""
+
+    _require_wisdm_internal(current_user)
+    so_number = str(request_data.get("soNumber") or "").strip()
+    whitelist_required = request_data.get("whitelistRequired") is True
+    provisioning_required = request_data.get("provisioningRequired") is True
+    if not so_number:
+        raise HTTPException(status_code=400, detail="SO Number is required")
+    if not (whitelist_required or provisioning_required):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one WisDM service is required",
+        )
+
+    try:
+        validated = resolve_manual_barcodes(
+            request_data.get("barcodes") or [],
+            db_client.scan_requests_for_list(),
+        )
+        now = datetime.now().isoformat()
+        company_name = str(request_data.get("companyName") or "").strip()
+        if not company_name:
+            company_name = validated.company_name
+        actor = actor_snapshot(current_user)
+        record_data = {
+            "so_number": so_number,
+            "company_name": company_name,
+            "associations": validated.associations,
+            "whitelist_required": whitelist_required,
+            "provisioning_required": provisioning_required,
+            "jira_keys": (
+                normalize_jira_keys(request_data.get("jiraKeys"))
+                if whitelist_required else []
+            ),
+            "workflow": WORKFLOW_CREATED,
+            "notes": str(request_data.get("notes") or "").strip(),
+            "source_type": "manual",
+            "created_by": actor,
+            "updated_by": actor,
+            "created_at": now,
+            "updated_at": now,
+        }
+        history = build_wisdm_history_item(
+            "",
+            "created",
+            current_user,
+            source_type="manual",
+            new_workflow=WORKFLOW_CREATED,
+            reason="Created manually",
+            created_at=now,
+        )
+        record = db_client.create_wisdm_service_record(record_data, history)
+        return serialize_wisdm_record(
+            record,
+            can_edit_content=True,
+            can_update_workflow=True,
+        )
+    except (WisdmRequestNotFoundError, WisdmAssociationMismatchError, WisdmValidationError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except WisdmDuplicateSOError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+
+
+@app.get("/api/wisdm-service-records/{record_id}")
+async def get_wisdm_service_record(
+    record_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_wisdm_internal(current_user)
+    record = db_client.get_wisdm_service_record(record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="WisDM service record not found")
+    history = db_client.query_wisdm_service_history(record["record_id"])
+    can_edit, can_update = _wisdm_permissions(current_user, record)
+    return serialize_wisdm_record_detail(
+        record,
+        history,
+        can_edit_content=can_edit,
+        can_update_workflow=can_update,
+    )
+
+
+@app.put("/api/wisdm-service-records/{record_id}")
+async def update_wisdm_service_record(
+    record_id: str,
+    request_data: dict,
+    current_user: dict = Depends(get_current_user),
+):
+    """分别处理 Workflow 即时更新和 CREATED 状态下的内容更新。"""
+
+    _require_wisdm_internal(current_user)
+    record = db_client.get_wisdm_service_record(record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="WisDM service record not found")
+    expected_version = _wisdm_expected_version(request_data)
+
+    immutable_api_fields = {"recordId", "soNumber"}
+    if immutable_api_fields.intersection(request_data):
+        raise HTTPException(
+            status_code=400,
+            detail="recordId and soNumber cannot be changed",
+        )
+
+    workflow_fields = {"workflow", "version", "reason"}
+    if "workflow" in request_data:
+        if not set(request_data).issubset(workflow_fields):
+            raise HTTPException(
+                status_code=400,
+                detail="Workflow and content must be updated separately",
+            )
+        new_workflow = str(request_data.get("workflow") or "").strip().upper()
+        valid_workflows = allowed_workflows(
+            bool(record.get("whitelist_required")),
+            bool(record.get("provisioning_required")),
+        )
+        if new_workflow not in valid_workflows:
+            raise HTTPException(
+                status_code=400,
+                detail="Workflow does not match the selected WisDM services",
+            )
+        if new_workflow == record.get("workflow"):
+            can_edit, can_update = _wisdm_permissions(current_user, record)
+            return serialize_wisdm_record(
+                record,
+                can_edit_content=can_edit,
+                can_update_workflow=can_update,
+            )
+
+        now = datetime.now().isoformat()
+        history = build_wisdm_history_item(
+            record["record_id"],
+            "workflow_changed",
+            current_user,
+            source_type="manual",
+            previous_workflow=record.get("workflow"),
+            new_workflow=new_workflow,
+            reason=str(request_data.get("reason") or ""),
+            created_at=now,
+        )
+        try:
+            updated = db_client.update_wisdm_workflow_with_history(
+                record,
+                new_workflow,
+                history,
+                expected_version,
+                {
+                    "updated_by": actor_snapshot(current_user),
+                    "updated_at": now,
+                },
+            )
+        except WisdmVersionConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+        can_edit, can_update = _wisdm_permissions(current_user, updated)
+        return serialize_wisdm_record(
+            updated,
+            can_edit_content=can_edit,
+            can_update_workflow=can_update,
+        )
+
+    if not can_edit_wisdm_content(current_user, record):
+        raise HTTPException(
+            status_code=403,
+            detail="This record content cannot be edited",
+        )
+
+    editable_fields = {
+        "companyName",
+        "barcodes",
+        "whitelistRequired",
+        "provisioningRequired",
+        "jiraKeys",
+        "notes",
+    }
+    if not editable_fields.intersection(request_data):
+        raise HTTPException(status_code=400, detail="No content fields to update")
+
+    whitelist_required = (
+        request_data.get("whitelistRequired") is True
+        if "whitelistRequired" in request_data
+        else bool(record.get("whitelist_required"))
+    )
+    provisioning_required = (
+        request_data.get("provisioningRequired") is True
+        if "provisioningRequired" in request_data
+        else bool(record.get("provisioning_required"))
+    )
+    if not (whitelist_required or provisioning_required):
+        raise HTTPException(
+            status_code=400,
+            detail="At least one WisDM service is required",
+        )
+
+    try:
+        if "barcodes" in request_data:
+            validated = resolve_manual_barcodes(
+                request_data.get("barcodes") or [],
+                db_client.scan_requests_for_list(),
+            )
+        else:
+            validated = validate_barcode_associations(
+                record.get("associations", []),
+                db_client.get_request,
+            )
+        update_data = {
+            "company_name": str(
+                request_data.get("companyName", record.get("company_name") or "")
+            ).strip(),
+            "associations": validated.associations,
+            "whitelist_required": whitelist_required,
+            "provisioning_required": provisioning_required,
+            "jira_keys": (
+                normalize_jira_keys(
+                    request_data.get("jiraKeys", record.get("jira_keys", []))
+                )
+                if whitelist_required else []
+            ),
+            "notes": str(
+                request_data.get("notes", record.get("notes") or "")
+            ).strip(),
+            "updated_by": actor_snapshot(current_user),
+            "updated_at": datetime.now().isoformat(),
+        }
+        updated = db_client.update_wisdm_service_record(
+            record["record_id"],
+            update_data,
+            expected_version,
+        )
+        can_edit, can_update = _wisdm_permissions(current_user, updated)
+        return serialize_wisdm_record(
+            updated,
+            can_edit_content=can_edit,
+            can_update_workflow=can_update,
+        )
+    except (WisdmRequestNotFoundError, WisdmAssociationMismatchError, WisdmValidationError) as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except WisdmVersionConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+
+
 @app.get("/api/requests")
 async def get_requests(current_user: dict = Depends(get_current_user)):
     """获取所有请求 - 根据用户权限过滤"""
@@ -980,6 +1302,24 @@ async def get_request(request_id: str, current_user: dict = Depends(get_current_
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _reject_occupied_barcode(config_data: Any, *, exclude_request_id: str = "") -> None:
+    """非空 Barcode 只能属于一张预配置请求。空值跳过，更新时排除当前请求。"""
+
+    barcode = extract_preconfig_reference({"config_data": config_data or {}})["barcode"]
+    if not barcode:
+        return
+    conflicts = conflicting_barcode_request_ids(
+        barcode,
+        db_client.scan_requests_for_list(),
+        exclude_request_id=exclude_request_id,
+    )
+    if conflicts:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Barcode {barcode} is already used by {', '.join(conflicts)}",
+        )
+
+
 @app.post("/api/requests")
 async def create_request(request_data: RequestCreate, current_user: dict = Depends(get_current_user)):
     """创建新请求"""
@@ -995,6 +1335,8 @@ async def create_request(request_data: RequestCreate, current_user: dict = Depen
         print(f"RAK ID: {request_data.rakId}")
         print(f"Config Data Keys: {list(request_data.configData.keys()) if request_data.configData else 'None'}")
         print(f"Config Data Sample: {str(request_data.configData)[:200]}...")
+
+        _reject_occupied_barcode(request_data.configData)
         
         # 构建请求数据
         # 确保 user_id 是整数类型
@@ -1022,31 +1364,44 @@ async def create_request(request_data: RequestCreate, current_user: dict = Depen
         
         print(f"DEBUG: Request dict user_id type: {type(user_id)}, value: {user_id}")
         
-        # 创建请求
+        creator_name = current_user.get("name") or current_user.get("email", "Unknown")
+        activity_data = build_activity_data(
+            request_id,
+            current_user,
+            'created',
+            f"Request created by {creator_name} for {request_data.companyName}",
+            created_at=created_at,
+        )
+
         try:
-            if not db_client.create_request(request_dict):
+            if build_auto_sync_plan(request_dict):
+                created = db_client.create_request_with_wisdm_sync(
+                    request_dict,
+                    current_user,
+                    activity_data,
+                )
+            else:
+                created = db_client.create_request(request_dict)
+                if created:
+                    # 不触发 WisDM 时保持现有行为：Activity 失败不回滚请求。
+                    try:
+                        db_client.create_activity(activity_data)
+                    except Exception as activity_error:
+                        print(
+                            "⚠️ Warning: Failed to create activity record: "
+                            f"{str(activity_error)}"
+                        )
+            if not created:
                 raise HTTPException(status_code=500, detail="Failed to create request")
+        except WisdmVersionConflictError as db_error:
+            raise HTTPException(status_code=409, detail=str(db_error))
+        except HTTPException:
+            raise
         except Exception as db_error:
             print(f"❌ Database error: {str(db_error)}")
             import traceback
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
-        
-        # 创建初始活动记录（记录创建者信息）
-        # 如果活动记录创建失败，不影响主请求的创建
-        try:
-            creator_name = current_user.get("name") or current_user.get("email", "Unknown")
-            activity_data = build_activity_data(
-                request_id,
-                current_user,
-                'created',
-                f"Request created by {creator_name} for {request_data.companyName}",
-                created_at=created_at,
-            )
-            db_client.create_activity(activity_data)
-        except Exception as activity_error:
-            # 活动记录创建失败不影响主请求，只记录日志
-            print(f"⚠️ Warning: Failed to create activity record: {str(activity_error)}")
         
         print(f"✅ Request created successfully: {request_id}")
         return {"message": "Request created successfully", "request_id": request_id}
@@ -1140,6 +1495,12 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
             raise HTTPException(status_code=403, detail="Only RAK Wireless employees can update workflow status")
         
         print(f"✅ Permission granted for request {request_id}")
+
+        if "configData" in request_data:
+            _reject_occupied_barcode(
+                request_data.get("configData"),
+                exclude_request_id=request_id,
+            )
         
         # 获取当前请求的旧值（用于记录history）
         old_status = request.get('status')
@@ -1246,20 +1607,38 @@ async def update_request(request_id: str, request_data: dict, current_user: dict
             current_user,
         )
 
-        # 有配置差异时，Request 更新与配置活动必须在同一事务中提交。
-        if configuration_activity:
-            update_succeeded = db_client.update_request_with_activity(
-                request_id,
-                update_data,
-                configuration_activity,
-                remove_fields=remove_fields,
-            )
-        else:
-            update_succeeded = db_client.update_request(
-                request_id,
-                update_data,
-                remove_fields=remove_fields,
-            )
+        effective_request = dict(request)
+        effective_request.update(update_data)
+        effective_request['request_id'] = request_id
+        for field in remove_fields:
+            effective_request.pop(field, None)
+
+        try:
+            if build_auto_sync_plan(effective_request):
+                update_succeeded = db_client.update_request_with_wisdm_sync(
+                    request_id,
+                    update_data,
+                    effective_request,
+                    current_user,
+                    configuration_activity,
+                    remove_fields=remove_fields,
+                )
+            elif configuration_activity:
+                # 有配置差异时，Request 更新与配置活动必须在同一事务中提交。
+                update_succeeded = db_client.update_request_with_activity(
+                    request_id,
+                    update_data,
+                    configuration_activity,
+                    remove_fields=remove_fields,
+                )
+            else:
+                update_succeeded = db_client.update_request(
+                    request_id,
+                    update_data,
+                    remove_fields=remove_fields,
+                )
+        except WisdmVersionConflictError as error:
+            raise HTTPException(status_code=409, detail=str(error))
         if not update_succeeded:
             raise HTTPException(status_code=500, detail="Failed to update request")
 

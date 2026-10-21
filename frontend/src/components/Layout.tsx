@@ -4,13 +4,13 @@ import { useAuthStore } from '../stores/authStore'
 import { 
   LayoutDashboard, 
   Settings, 
-  LogOut, 
   Menu,
   X,
-  FileText
+  FileText,
+  CloudCog,
 } from 'lucide-react'
 import { useState } from 'react'
-import AssignmentNotification from './AssignmentNotification'
+import { isWisdmInternalRole } from '../utils/wisdmUtils'
 
 interface LayoutProps {
   children: ReactNode
@@ -22,6 +22,7 @@ const Layout = ({ children }: LayoutProps) => {
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const isWisdmRoute = location.pathname.startsWith('/wisdm-services')
 
   const handleLogout = () => {
     setShowLogoutConfirm(true)
@@ -36,6 +37,9 @@ const Layout = ({ children }: LayoutProps) => {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Configuration', href: '/configuration', icon: Settings },
+    ...(isWisdmInternalRole(user?.role)
+      ? [{ name: 'WisDM Services', href: '/wisdm-services', icon: CloudCog }]
+      : []),
     { name: 'Templates', href: '/templates', icon: FileText },
   ]
 
@@ -46,7 +50,9 @@ const Layout = ({ children }: LayoutProps) => {
         <div className="fixed inset-0 bg-gray-600 bg-opacity-75" onClick={() => setSidebarOpen(false)} />
         <div className="fixed inset-y-0 left-0 flex w-64 flex-col bg-white">
           <div className="flex h-16 items-center justify-between px-4">
-            <h1 className="text-xl font-bold text-gray-900">WisGateOS2 Pre-configuration Database</h1>
+            {!isWisdmRoute ? (
+              <h1 className="text-xl font-bold text-gray-900">WisGateOS2 Pre-configuration Database</h1>
+            ) : null}
             <button
               onClick={() => setSidebarOpen(false)}
               className="text-gray-400 hover:text-gray-600"
@@ -56,7 +62,7 @@ const Layout = ({ children }: LayoutProps) => {
           </div>
           <nav className="flex-1 space-y-2 px-3 py-4">
             {navigation.map((item) => {
-              const isActive = location.pathname === item.href
+              const isActive = location.pathname === item.href || location.pathname.startsWith(`${item.href}/`)
               return (
                 <Link
                   key={item.name}
@@ -80,11 +86,13 @@ const Layout = ({ children }: LayoutProps) => {
       <div className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
         <div className="flex flex-col flex-grow bg-white border-r border-gray-200">
           <div className="flex h-16 items-center px-4">
-            <h1 className="text-xl font-bold text-gray-900">WisGateOS2 Pre-configuration Database</h1>
+            {!isWisdmRoute ? (
+              <h1 className="text-xl font-bold text-gray-900">WisGateOS2 Pre-configuration Database</h1>
+            ) : null}
           </div>
           <nav className="flex-1 space-y-2 px-3 py-4">
             {navigation.map((item) => {
-              const isActive = location.pathname === item.href
+              const isActive = location.pathname === item.href || location.pathname.startsWith(`${item.href}/`)
               return (
                 <Link
                   key={item.name}

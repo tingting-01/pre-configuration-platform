@@ -13,6 +13,20 @@ from decimal import Decimal
 from datetime import datetime
 from dotenv import load_dotenv
 from boto3.dynamodb.conditions import Attr
+from wisdm_service import (
+    WORKFLOW_CREATED,
+    WisdmDuplicateSOError,
+    WisdmValidationError,
+    WisdmVersionConflictError,
+    allowed_workflows,
+    actor_snapshot,
+    build_auto_sync_plan,
+    build_wisdm_history_item,
+    merge_auto_supplement,
+    normalize_associations,
+    normalize_jira_keys,
+    normalize_so_number,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +61,9 @@ TABLES = {
     'template_favorites': 'preconfig-template-favorites',
     'files': 'preconfig-files',
     'comments': 'preconfig-comments',
-    'activities': 'preconfig-activities'
+    'activities': 'preconfig-activities',
+    'wisdm_service_records': 'preconfig-wisdm-service-records',
+    'wisdm_service_history': 'preconfig-wisdm-service-history',
 }
 
 def convert_decimal_to_number(obj):
@@ -421,6 +437,193 @@ class DynamoDBClient:
                 e.response.get('ResponseMetadata', {}).get('RequestId'),
             )
             return False
+
+    def _build_request_put_transact_item(self, request_data: dict) -> dict:
+        return {
+            'Put': {
+                'TableName': TABLES['requests'],
+                'Item': self._serialize_transaction_item(request_data),
+                'ConditionExpression': 'attribute_not_exists(request_id)',
+            }
+        }
+
+    def _build_request_update_transact_item(
+        self,
+        request_id: str,
+        update_data: dict,
+        remove_fields: list = None,
+    ) -> dict:
+        params = self._build_request_update_params(
+            request_id,
+            update_data,
+            remove_fields,
+        )
+        if not params:
+            raise WisdmValidationError('No request fields to update')
+        serializer = TypeSerializer()
+        update = {
+            'TableName': TABLES['requests'],
+            'Key': {
+                key: serializer.serialize(value)
+                for key, value in params['Key'].items()
+            },
+            'UpdateExpression': params['UpdateExpression'],
+            'ExpressionAttributeNames': params.get('ExpressionAttributeNames', {}),
+        }
+        if params.get('ExpressionAttributeValues'):
+            update['ExpressionAttributeValues'] = {
+                key: serializer.serialize(value)
+                for key, value in params['ExpressionAttributeValues'].items()
+            }
+        return {'Update': update}
+
+    def _build_activity_put_transact_item(self, activity_data: dict) -> dict:
+        return {
+            'Put': {
+                'TableName': TABLES['activities'],
+                'Item': self._serialize_transaction_item(activity_data),
+            }
+        }
+
+    def _write_request_with_wisdm_sync(
+        self,
+        request_write_item: dict,
+        effective_request: dict,
+        actor: dict,
+        activity_data: Optional[dict] = None,
+        max_attempts: int = 3,
+    ) -> bool:
+        """把请求保存、配置 Activity 与 WisDM 补充放入同一事务。"""
+
+        sync_plan = build_auto_sync_plan(effective_request)
+        if not sync_plan:
+            raise WisdmValidationError('This request does not qualify for WisDM auto-supplement')
+
+        last_error: Optional[ClientError] = None
+        for attempt in range(max_attempts):
+            base_items = [request_write_item]
+            if activity_data:
+                base_items.append(self._build_activity_put_transact_item(activity_data))
+
+            existing = self.get_wisdm_service_record_by_so(sync_plan['so_number'])
+            if existing:
+                merged, changed = merge_auto_supplement(
+                    existing,
+                    sync_plan['associations'],
+                    whitelist_required=sync_plan['whitelist_required'],
+                    provisioning_required=sync_plan['provisioning_required'],
+                    company_name=sync_plan['company_name'],
+                )
+                if changed:
+                    update_data = {
+                        key: merged.get(key)
+                        for key in (
+                            'associations',
+                            'whitelist_required',
+                            'provisioning_required',
+                            'company_name',
+                        )
+                        if merged.get(key) != existing.get(key)
+                    }
+                    update_data.update({
+                        'updated_by': actor_snapshot(actor),
+                        'updated_at': datetime.now().isoformat(),
+                    })
+                    base_items.append(self.build_wisdm_update_transact_item(
+                        existing['record_id'],
+                        update_data,
+                        int(existing.get('version', 1)),
+                    ))
+            else:
+                now = datetime.now().isoformat()
+                record_id = self.next_wisdm_service_record_id()
+                record_data = {
+                    **sync_plan,
+                    'workflow': WORKFLOW_CREATED,
+                    'jira_keys': [],
+                    'notes': '',
+                    'source_type': 'automatic',
+                    'created_by': actor_snapshot(actor),
+                    'updated_by': actor_snapshot(actor),
+                    'created_at': now,
+                    'updated_at': now,
+                }
+                history = build_wisdm_history_item(
+                    record_id,
+                    'created',
+                    actor,
+                    source_type='automatic',
+                    new_workflow=WORKFLOW_CREATED,
+                    reason='Created from preconfiguration request save',
+                    created_at=now,
+                )
+                create_items, _record = self.build_wisdm_create_transact_items(
+                    record_data,
+                    record_id,
+                    history,
+                )
+                base_items.extend(create_items)
+
+            try:
+                self.transaction_client.transact_write_items(
+                    TransactItems=base_items,
+                )
+                return True
+            except ClientError as error:
+                last_error = error
+                error_code = error.response.get('Error', {}).get('Code')
+                conditional_conflict = any(
+                    isinstance(reason, dict)
+                    and reason.get('Code') == 'ConditionalCheckFailed'
+                    for reason in error.response.get('CancellationReasons') or []
+                )
+                if (
+                    error_code in {
+                        'ConditionalCheckFailedException',
+                        'TransactionCanceledException',
+                    }
+                    and (conditional_conflict or not error.response.get('CancellationReasons'))
+                    and attempt + 1 < max_attempts
+                ):
+                    continue
+                break
+
+        raise WisdmVersionConflictError(
+            'The WisDM service record changed while saving the preconfiguration request'
+        ) from last_error
+
+    def create_request_with_wisdm_sync(
+        self,
+        request_data: dict,
+        actor: dict,
+        activity_data: Optional[dict] = None,
+    ) -> bool:
+        return self._write_request_with_wisdm_sync(
+            self._build_request_put_transact_item(request_data),
+            request_data,
+            actor,
+            activity_data,
+        )
+
+    def update_request_with_wisdm_sync(
+        self,
+        request_id: str,
+        update_data: dict,
+        effective_request: dict,
+        actor: dict,
+        activity_data: Optional[dict] = None,
+        remove_fields: list = None,
+    ) -> bool:
+        return self._write_request_with_wisdm_sync(
+            self._build_request_update_transact_item(
+                request_id,
+                update_data,
+                remove_fields,
+            ),
+            effective_request,
+            actor,
+            activity_data,
+        )
     
     def delete_request(self, request_id: str) -> bool:
         """删除请求"""
@@ -609,6 +812,397 @@ class DynamoDBClient:
         except ClientError as e:
             print(f"Error batch deleting requests: {e}")
             return deleted_count
+
+    # ==================== WisDM Service 操作方法 ====================
+
+    @staticmethod
+    def _serialize_transaction_item(item: dict) -> dict:
+        """复用统一转换规则，生成低层事务客户端需要的 AttributeValue。"""
+
+        serializer = TypeSerializer()
+        converted = convert_to_dynamodb_item(item)
+        return {
+            key: serializer.serialize(value)
+            for key, value in converted.items()
+        }
+
+    def next_wisdm_service_record_id(self) -> str:
+        """原子递增计数器并返回至少四位补零的 WDM 编号。"""
+
+        response = self.tables['wisdm_service_records'].update_item(
+            Key={'pk': 'COUNTER#WISDM_SERVICE'},
+            UpdateExpression='ADD #sequence :increment',
+            ExpressionAttributeNames={'#sequence': 'sequence'},
+            ExpressionAttributeValues={':increment': 1},
+            ReturnValues='UPDATED_NEW',
+        )
+        sequence = int(response['Attributes']['sequence'])
+        return f"WDM{sequence:04d}"
+
+    def build_wisdm_create_transact_items(
+        self,
+        record_data: dict,
+        record_id: str,
+        history_item: Optional[dict] = None,
+    ) -> tuple[list[dict], dict]:
+        """构建服务主记录、SO 唯一占位及可选 History 的事务项。"""
+
+        so_number = str(record_data.get('so_number') or '').strip()
+        so_number_key = normalize_so_number(so_number)
+        if not so_number_key:
+            raise WisdmValidationError('SO Number is required')
+
+        associations = normalize_associations(
+            record_data.get('associations', record_data.get('barcodes', []))
+        )
+        if not associations:
+            raise WisdmValidationError('At least one barcode association is required')
+
+        whitelist_required = bool(record_data.get('whitelist_required'))
+        provisioning_required = bool(record_data.get('provisioning_required'))
+        workflows = allowed_workflows(whitelist_required, provisioning_required)
+        if not workflows:
+            raise WisdmValidationError('At least one WisDM service is required')
+        workflow = record_data.get('workflow') or WORKFLOW_CREATED
+        if workflow not in workflows:
+            raise WisdmValidationError('Workflow does not match the selected WisDM services')
+
+        record = dict(record_data)
+        record.update({
+            'pk': f'RECORD#{record_id}',
+            'record_id': record_id,
+            'so_number': so_number,
+            'so_number_key': so_number_key,
+            'associations': associations,
+            'whitelist_required': whitelist_required,
+            'provisioning_required': provisioning_required,
+            'jira_keys': (
+                normalize_jira_keys(record_data.get('jira_keys'))
+                if whitelist_required else []
+            ),
+            'workflow': workflow,
+            'version': 1,
+        })
+        record.pop('barcodes', None)
+
+        so_lock = {
+            'pk': f'SO#{so_number_key}',
+            'record_id': record_id,
+            'so_number': so_number,
+        }
+        items = [
+            {
+                'Put': {
+                    'TableName': TABLES['wisdm_service_records'],
+                    'Item': self._serialize_transaction_item(record),
+                    'ConditionExpression': 'attribute_not_exists(pk)',
+                }
+            },
+            {
+                'Put': {
+                    'TableName': TABLES['wisdm_service_records'],
+                    'Item': self._serialize_transaction_item(so_lock),
+                    'ConditionExpression': 'attribute_not_exists(pk)',
+                }
+            },
+        ]
+        if history_item:
+            history = dict(history_item)
+            history['record_id'] = record_id
+            items.append({
+                'Put': {
+                    'TableName': TABLES['wisdm_service_history'],
+                    'Item': self._serialize_transaction_item(history),
+                    'ConditionExpression': (
+                        'attribute_not_exists(record_id) AND '
+                        'attribute_not_exists(event_key)'
+                    ),
+                }
+            })
+        return items, record
+
+    def create_wisdm_service_record(
+        self,
+        record_data: dict,
+        history_item: Optional[dict] = None,
+    ) -> dict:
+        """分配 WDM 编号并事务创建主记录与 SO 唯一占位。"""
+
+        record_id = self.next_wisdm_service_record_id()
+        transact_items, record = self.build_wisdm_create_transact_items(
+            record_data,
+            record_id,
+            history_item,
+        )
+        try:
+            self.transaction_client.transact_write_items(
+                TransactItems=transact_items,
+            )
+        except ClientError as error:
+            error_code = error.response.get('Error', {}).get('Code')
+            cancellation_reasons = error.response.get('CancellationReasons') or []
+            has_condition_conflict = any(
+                reason.get('Code') == 'ConditionalCheckFailed'
+                for reason in cancellation_reasons[:2]
+                if isinstance(reason, dict)
+            )
+            if error_code in {
+                'ConditionalCheckFailedException',
+                'TransactionCanceledException',
+            } and (has_condition_conflict or not cancellation_reasons):
+                raise WisdmDuplicateSOError(
+                    f"SO {record['so_number']} already has a service record"
+                ) from error
+            raise
+        return convert_from_dynamodb_item(record)
+
+    def get_wisdm_service_record(self, record_id: str) -> Optional[dict]:
+        response = self.tables['wisdm_service_records'].get_item(
+            Key={'pk': f"RECORD#{str(record_id).strip().upper()}"}
+        )
+        item = convert_from_dynamodb_item(response.get('Item'))
+        return item or None
+
+    def get_wisdm_service_record_by_so(self, so_number: str) -> Optional[dict]:
+        so_number_key = normalize_so_number(so_number)
+        if not so_number_key:
+            return None
+        lock_response = self.tables['wisdm_service_records'].get_item(
+            Key={'pk': f'SO#{so_number_key}'}
+        )
+        lock = convert_from_dynamodb_item(lock_response.get('Item'))
+        record_id = lock.get('record_id')
+        if not record_id:
+            return None
+        return self.get_wisdm_service_record(record_id)
+
+    def scan_wisdm_service_records(self) -> List[dict]:
+        """扫描服务主记录；计数器和 SO 占位项不会进入结果。"""
+
+        scan_kwargs = {
+            'FilterExpression': 'begins_with(#pk, :record_prefix)',
+            'ExpressionAttributeNames': {'#pk': 'pk'},
+            'ExpressionAttributeValues': {':record_prefix': 'RECORD#'},
+        }
+        items: List[dict] = []
+        response = self.tables['wisdm_service_records'].scan(**scan_kwargs)
+        items.extend(response.get('Items', []))
+        while 'LastEvaluatedKey' in response:
+            response = self.tables['wisdm_service_records'].scan(
+                ExclusiveStartKey=response['LastEvaluatedKey'],
+                **scan_kwargs,
+            )
+            items.extend(response.get('Items', []))
+        return [
+            convert_from_dynamodb_item(item)
+            for item in items
+            if str(item.get('pk', '')).startswith('RECORD#')
+        ]
+
+    def _build_wisdm_record_update_params(
+        self,
+        record_id: str,
+        update_data: dict,
+        expected_version: int,
+    ) -> dict:
+        immutable_fields = {'pk', 'record_id', 'so_number', 'so_number_key', 'version'}
+        forbidden = immutable_fields.intersection(update_data)
+        if forbidden:
+            raise WisdmValidationError(
+                f"These fields cannot be changed: {', '.join(sorted(forbidden))}"
+            )
+        if not update_data:
+            raise WisdmValidationError('No fields to update')
+
+        normalized_update = dict(update_data)
+        if 'associations' in normalized_update:
+            normalized_update['associations'] = normalize_associations(
+                normalized_update['associations']
+            )
+        if 'jira_keys' in normalized_update:
+            normalized_update['jira_keys'] = normalize_jira_keys(
+                normalized_update['jira_keys']
+            )
+
+        names = {
+            '#pk': 'pk',
+            '#version': 'version',
+        }
+        values = {
+            ':expected_version': int(expected_version),
+            ':increment': 1,
+        }
+        set_parts = ['#version = #version + :increment']
+        for index, (field, value) in enumerate(normalized_update.items()):
+            name_token = f'#field_{index}'
+            value_token = f':value_{index}'
+            names[name_token] = field
+            values[value_token] = convert_to_dynamodb_item({field: value})[field]
+            set_parts.append(f'{name_token} = {value_token}')
+
+        return {
+            'Key': {'pk': f"RECORD#{str(record_id).strip().upper()}"},
+            'UpdateExpression': f"SET {', '.join(set_parts)}",
+            'ConditionExpression': (
+                'attribute_exists(#pk) AND #version = :expected_version'
+            ),
+            'ExpressionAttributeNames': names,
+            'ExpressionAttributeValues': values,
+        }
+
+    def build_wisdm_update_transact_item(
+        self,
+        record_id: str,
+        update_data: dict,
+        expected_version: int,
+    ) -> dict:
+        """构建可与请求保存、Activity 或 History 组合的低层更新项。"""
+
+        params = self._build_wisdm_record_update_params(
+            record_id,
+            update_data,
+            expected_version,
+        )
+        serializer = TypeSerializer()
+        return {
+            'Update': {
+                'TableName': TABLES['wisdm_service_records'],
+                'Key': {
+                    key: serializer.serialize(value)
+                    for key, value in params['Key'].items()
+                },
+                'UpdateExpression': params['UpdateExpression'],
+                'ConditionExpression': params['ConditionExpression'],
+                'ExpressionAttributeNames': params['ExpressionAttributeNames'],
+                'ExpressionAttributeValues': {
+                    key: serializer.serialize(value)
+                    for key, value in params['ExpressionAttributeValues'].items()
+                },
+            }
+        }
+
+    def update_wisdm_service_record(
+        self,
+        record_id: str,
+        update_data: dict,
+        expected_version: int,
+    ) -> dict:
+        """以版本条件更新记录，冲突时抛出明确异常。"""
+
+        params = self._build_wisdm_record_update_params(
+            record_id,
+            update_data,
+            expected_version,
+        )
+
+        try:
+            response = self.tables['wisdm_service_records'].update_item(
+                **params,
+                ReturnValues='ALL_NEW',
+            )
+        except ClientError as error:
+            if error.response.get('Error', {}).get('Code') == (
+                'ConditionalCheckFailedException'
+            ):
+                raise WisdmVersionConflictError(
+                    f'Service record {record_id} was updated by another request'
+                ) from error
+            raise
+        return convert_from_dynamodb_item(response.get('Attributes'))
+
+    def update_wisdm_workflow_with_history(
+        self,
+        record: dict,
+        new_workflow: str,
+        history_item: dict,
+        expected_version: int,
+        update_metadata: Optional[dict] = None,
+    ) -> dict:
+        """在同一事务中更新 Workflow 并写入 History。"""
+
+        update_data = dict(update_metadata or {})
+        update_data['workflow'] = new_workflow
+        update_item = self.build_wisdm_update_transact_item(
+            record['record_id'],
+            update_data,
+            expected_version,
+        )
+        history = dict(history_item)
+        history['record_id'] = record['record_id']
+        history_put = {
+            'Put': {
+                'TableName': TABLES['wisdm_service_history'],
+                'Item': self._serialize_transaction_item(history),
+                'ConditionExpression': (
+                    'attribute_not_exists(record_id) AND '
+                    'attribute_not_exists(event_key)'
+                ),
+            }
+        }
+        try:
+            self.transaction_client.transact_write_items(
+                TransactItems=[update_item, history_put]
+            )
+        except ClientError as error:
+            reasons = error.response.get('CancellationReasons') or []
+            update_conflict = bool(
+                reasons
+                and isinstance(reasons[0], dict)
+                and reasons[0].get('Code') == 'ConditionalCheckFailed'
+            )
+            if (
+                error.response.get('Error', {}).get('Code')
+                in {'ConditionalCheckFailedException', 'TransactionCanceledException'}
+                and (update_conflict or not reasons)
+            ):
+                raise WisdmVersionConflictError(
+                    f"Service record {record['record_id']} was updated by another request"
+                ) from error
+            raise
+
+        updated = dict(record)
+        updated.update(update_data)
+        updated['version'] = int(expected_version) + 1
+        return updated
+
+    def put_wisdm_service_history(self, history_item: dict) -> None:
+        """写入单条 History；事务场景应复用 build 方法中的低层写入。"""
+
+        self.tables['wisdm_service_history'].put_item(
+            Item=convert_to_dynamodb_item(history_item),
+            ConditionExpression=(
+                'attribute_not_exists(record_id) AND attribute_not_exists(event_key)'
+            ),
+        )
+
+    def query_wisdm_service_history(
+        self,
+        record_id: str,
+        limit: Optional[int] = None,
+    ) -> List[dict]:
+        """按 event_key 从新到旧查询 History。"""
+
+        query_kwargs = {
+            'KeyConditionExpression': '#record_id = :record_id',
+            'ExpressionAttributeNames': {'#record_id': 'record_id'},
+            'ExpressionAttributeValues': {':record_id': record_id},
+            'ScanIndexForward': False,
+        }
+        if limit is not None:
+            query_kwargs['Limit'] = int(limit)
+
+        items: List[dict] = []
+        response = self.tables['wisdm_service_history'].query(**query_kwargs)
+        items.extend(response.get('Items', []))
+        while limit is None and 'LastEvaluatedKey' in response:
+            response = self.tables['wisdm_service_history'].query(
+                ExclusiveStartKey=response['LastEvaluatedKey'],
+                **query_kwargs,
+            )
+            items.extend(response.get('Items', []))
+        converted = [convert_from_dynamodb_item(item) for item in items]
+        converted.sort(key=lambda item: item.get('event_key', ''), reverse=True)
+        return converted[:limit] if limit is not None else converted
     
     # ==================== Templates 操作方法 ====================
     

@@ -1689,7 +1689,8 @@ const DashboardOriginal = () => {
               </button>
             </div>
           ) : (
-            <div 
+            <div
+              className="table-ping-right"
               style={{ 
                 overflowX: 'auto',
                 overflowY: 'visible',
@@ -1887,7 +1888,7 @@ const DashboardOriginal = () => {
                     }}>
                       Creator
                     </th>
-                    <th style={{
+                    <th className="table-fix-right" style={{
                       padding: '6px 10px',
                       textAlign: 'left',
                       fontWeight: '500',
@@ -1901,8 +1902,7 @@ const DashboardOriginal = () => {
                       position: 'sticky',
                       right: 0,
                       zIndex: 2,
-                      borderLeft: '1px solid #e5e7eb',
-                      boxShadow: '-4px 0 6px -6px rgba(0, 0, 0, 0.35)'
+                      borderLeft: '1px solid #e5e7eb'
                     }}>
                       Actions
                     </th>
@@ -2345,7 +2345,7 @@ const DashboardOriginal = () => {
                           </span>
                         </div>
                       </td>
-                      <td data-no-row-click style={{
+                      <td data-no-row-click className="table-fix-right" style={{
                         padding: '4px 10px',
                         width: '180px',
                         minWidth: '180px',
@@ -2354,8 +2354,7 @@ const DashboardOriginal = () => {
                         right: 0,
                         zIndex: 1,
                         background: hoveredRequestId === request.id ? '#E9E1FD' : '#ffffff',
-                        borderLeft: '1px solid #e5e7eb',
-                        boxShadow: '-4px 0 6px -6px rgba(0, 0, 0, 0.35)'
+                        borderLeft: '1px solid #e5e7eb'
                       }}>
                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                           {(() => {

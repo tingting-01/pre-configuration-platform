@@ -60,3 +60,20 @@
     @apply rounded-lg border bg-card text-card-foreground shadow-sm;
   }
 }
+
+/* Ant Design right-fixed column shadow: a 30px strip sitting just left of the cell. */
+.table-fix-right::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: -1px;
+  left: 0;
+  width: 30px;
+  transform: translateX(-100%);
+  transition: box-shadow 0.3s;
+  pointer-events: none;
+}
+
+.table-ping-right .table-fix-right::after {
+  box-shadow: inset -10px 0 8px -8px rgba(0, 0, 0, 0.15);
+}

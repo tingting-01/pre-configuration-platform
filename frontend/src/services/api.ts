@@ -111,6 +111,90 @@ export interface CreateRequestRequest {
   tags?: Array<{ type: string; value: string; label: string }>
 }
 
+export type WisdmWorkflow =
+  | 'CREATED'
+  | 'WHITELIST_DONE'
+  | 'PROVISIONING_DONE'
+  | 'ALL_DONE'
+
+export interface WisdmActor {
+  id: number | string
+  name: string
+  email: string
+}
+
+export interface WisdmBarcodeAssociation {
+  requestId: string
+  barcode: string
+}
+
+export interface WisdmHistoryEvent {
+  eventKey: string
+  eventType: 'created' | 'workflow_changed' | string
+  previousWorkflow: WisdmWorkflow | null
+  newWorkflow: WisdmWorkflow | null
+  reason: string
+  actor: WisdmActor | null
+  createdAt: string | null
+}
+
+export interface WisdmServiceRecord {
+  recordId: string
+  soNumber: string
+  companyName: string
+  barcodes: WisdmBarcodeAssociation[]
+  whitelistRequired: boolean
+  provisioningRequired: boolean
+  jiraKeys: string[]
+  workflow: WisdmWorkflow
+  notes: string
+  sourceType: 'manual' | 'automatic' | string
+  createdBy: WisdmActor | null
+  updatedBy: WisdmActor | null
+  createdAt: string | null
+  updatedAt: string | null
+  version: number
+  allowedWorkflows: WisdmWorkflow[]
+  permissions: {
+    canEditContent: boolean
+    canUpdateWorkflow: boolean
+  }
+}
+
+export interface WisdmServiceRecordDetail extends WisdmServiceRecord {
+  history: WisdmHistoryEvent[]
+}
+
+export interface WisdmServiceListParams {
+  search?: string
+  filter?: 'ALL' | WisdmWorkflow
+  preconfigRequestId?: string
+  barcode?: string
+}
+
+export interface WisdmServiceContentInput {
+  companyName: string
+  barcodes: string[]
+  whitelistRequired: boolean
+  provisioningRequired: boolean
+  jiraKeys: string[]
+  notes: string
+}
+
+export interface CreateWisdmServiceRecordInput extends WisdmServiceContentInput {
+  soNumber: string
+}
+
+export interface UpdateWisdmServiceRecordInput extends WisdmServiceContentInput {
+  version: number
+}
+
+export interface UpdateWisdmWorkflowInput {
+  workflow: WisdmWorkflow
+  version: number
+  reason?: string
+}
+
 // 认证API
 export const authAPI = {
   login: async (data: LoginRequest): Promise<LoginResponse> => {
@@ -187,6 +271,47 @@ export const requestAPI = {
       }
       return { message: `Processed ${ids.length} requests`, results }
     }
+  },
+}
+
+export const wisdmServiceAPI = {
+  getRecords: async (params: WisdmServiceListParams = {}): Promise<WisdmServiceRecord[]> => {
+    const response = await api.get<{ records: WisdmServiceRecord[] }>('/api/wisdm-service-records', { params })
+    return response.data.records
+  },
+
+  getRecord: async (recordId: string): Promise<WisdmServiceRecordDetail> => {
+    const response = await api.get<WisdmServiceRecordDetail>(
+      `/api/wisdm-service-records/${encodeURIComponent(recordId)}`,
+    )
+    return response.data
+  },
+
+  createRecord: async (data: CreateWisdmServiceRecordInput): Promise<WisdmServiceRecord> => {
+    const response = await api.post<WisdmServiceRecord>('/api/wisdm-service-records', data)
+    return response.data
+  },
+
+  updateRecord: async (
+    recordId: string,
+    data: UpdateWisdmServiceRecordInput,
+  ): Promise<WisdmServiceRecord> => {
+    const response = await api.put<WisdmServiceRecord>(
+      `/api/wisdm-service-records/${encodeURIComponent(recordId)}`,
+      data,
+    )
+    return response.data
+  },
+
+  updateWorkflow: async (
+    recordId: string,
+    data: UpdateWisdmWorkflowInput,
+  ): Promise<WisdmServiceRecord> => {
+    const response = await api.put<WisdmServiceRecord>(
+      `/api/wisdm-service-records/${encodeURIComponent(recordId)}`,
+      data,
+    )
+    return response.data
   },
 }
 

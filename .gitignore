@@ -46,6 +46,9 @@ ENV/
 # Frontend
 frontend/dist/
 frontend/.vite/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.playwright-cli/
 
 # Temporary files
 *.tmp

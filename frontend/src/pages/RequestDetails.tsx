@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from 'react-query'
 import { requestAPI, Request } from '../services/api'
 import { useAuthStore } from '../stores/authStore'
@@ -33,9 +33,15 @@ import {
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 
+// Only WisDM entry points may override the default dashboard return.
+const WISDM_RETURN_PATH = /^\/wisdm-services(?:\/[A-Za-z0-9_-]+)?$/
+
 const RequestDetails = () => {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const returnFrom = searchParams.get('from')
+  const backPath = returnFrom && WISDM_RETURN_PATH.test(returnFrom) ? returnFrom : '/dashboard'
   const { user, logout } = useAuthStore()
   const { toasts, showError, showSuccess, removeToast } = useToast()
   const [activeSection, setActiveSection] = useState('overview')
@@ -519,11 +525,11 @@ const RequestDetails = () => {
                       You don't have permission to access this request. Only RAK Wireless employees can view all requests, and you can only view and edit your own requests.
                     </p>
                     <button
-                      onClick={() => navigate('/dashboard')}
+                      onClick={() => navigate(backPath)}
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-yellow-800 bg-yellow-100 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
                     >
                       <ArrowLeft className="h-4 w-4 mr-2" />
-                      Back to Dashboard
+                      {backPath === '/dashboard' ? 'Back to Dashboard' : 'Back to WisDM Services'}
                     </button>
                   </div>
                 </div>
@@ -556,11 +562,11 @@ const RequestDetails = () => {
                     Failed to load request details. Please try again.
                   </p>
                   <button
-                    onClick={() => navigate('/dashboard')}
+                    onClick={() => navigate(backPath)}
                     className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-red-800 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                   >
                     <ArrowLeft className="h-4 w-4 mr-2" />
-                    Back to Dashboard
+                    {backPath === '/dashboard' ? 'Back to Dashboard' : 'Back to WisDM Services'}
                   </button>
                 </div>
               </div>
@@ -1651,7 +1657,7 @@ const RequestDetails = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center">
                 <button
-                  onClick={() => navigate('/dashboard')}
+                  onClick={() => navigate(backPath)}
                   className="mr-4 p-2 text-gray-400 hover:text-gray-600"
                 >
                   <ArrowLeft className="h-5 w-5" />

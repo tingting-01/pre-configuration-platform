@@ -5,7 +5,15 @@ import Dashboard from './pages/DashboardOriginal'
 import Configuration from './pages/ConfigurationComplete'
 import RequestDetails from './pages/RequestDetails'
 import TemplatesPage from './pages/TemplatesPage'
+import WisdmServicesPage from './pages/WisdmServicesPage'
+import WisdmServiceDetails from './pages/WisdmServiceDetails'
 import Layout from './components/Layout'
+import { isWisdmInternalRole } from './utils/wisdmUtils'
+
+const WisdmInternalRoute = ({ children }: { children: JSX.Element }) => {
+  const { user } = useAuthStore()
+  return isWisdmInternalRole(user?.role) ? children : <Navigate to="/dashboard" replace />
+}
 
 function App() {
   const { isAuthenticated } = useAuthStore()
@@ -31,6 +39,14 @@ function App() {
                   <Route path="/configuration" element={<Configuration />} />
                   <Route path="/templates" element={<TemplatesPage />} />
                   <Route path="/request-details/:id" element={<RequestDetails />} />
+                  <Route
+                    path="/wisdm-services"
+                    element={<WisdmInternalRoute><WisdmServicesPage /></WisdmInternalRoute>}
+                  />
+                  <Route
+                    path="/wisdm-services/:recordId"
+                    element={<WisdmInternalRoute><WisdmServiceDetails /></WisdmInternalRoute>}
+                  />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
               </Layout>

@@ -38,6 +38,8 @@ const WisdmServicesPage = () => {
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [updatingWorkflows, setUpdatingWorkflows] = useState<Set<string>>(new Set())
+  const [deleteTarget, setDeleteTarget] = useState<WisdmServiceRecord | null>(null)
+  const [deletingRecordId, setDeletingRecordId] = useState<string | null>(null)
   const listSectionRef = useRef<HTMLDivElement>(null)
   const {
     currentPage,
@@ -46,7 +48,7 @@ const WisdmServicesPage = () => {
     setItemsPerPage,
     resetPagination,
   } = useWisdmServicesStore()
-  const { toasts, showError, removeToast } = useToast()
+  const { toasts, showError, showSuccess, removeToast } = useToast()
 
   const params = useMemo<WisdmServiceListParams>(
     () => ({ ...(search ? { search } : {}), filter }),
@@ -151,6 +153,23 @@ const WisdmServicesPage = () => {
         next.delete(record.recordId)
         return next
       })
+    }
+  }
+
+  const deleteRecord = async () => {
+    if (!deleteTarget || deletingRecordId) return
+    const record = deleteTarget
+    setDeletingRecordId(record.recordId)
+    try {
+      await wisdmServiceAPI.deleteRecord(record.recordId)
+      setDeleteTarget(null)
+      queryClient.removeQueries(['wisdm-service-record', record.recordId])
+      await queryClient.invalidateQueries('wisdm-service-records')
+      showSuccess(`Deleted ${record.recordId}`)
+    } catch (error) {
+      showError(getWisdmErrorMessage(error))
+    } finally {
+      setDeletingRecordId(null)
     }
   }
 
@@ -298,9 +317,9 @@ const WisdmServicesPage = () => {
                   <th className="px-4 py-3 text-center">Provisioning</th>
                   <th className="px-4 py-3">Workflow Process</th>
                   <th className="px-4 py-3" style={{
-                    width: '180px',
-                    minWidth: '180px',
-                    maxWidth: '180px',
+                    width: '260px',
+                    minWidth: '260px',
+                    maxWidth: '260px',
                     background: '#f9fafb',
                     position: 'sticky',
                     right: 0,
@@ -313,7 +332,7 @@ const WisdmServicesPage = () => {
                   const updating = updatingWorkflows.has(record.recordId)
                   return (
                     <tr key={record.recordId} className="group align-top hover:bg-gray-50">
-                      <td className="whitespace-nowrap px-4 py-4">
+                      <td className="align-middle whitespace-nowrap px-4 py-4">
                         <Link to={`/wisdm-services/${record.recordId}`} className="font-semibold text-purple-700 no-underline hover:text-purple-700 hover:no-underline">
                           {record.soNumber}
                         </Link>
@@ -348,7 +367,7 @@ const WisdmServicesPage = () => {
                           <input type="checkbox" checked={record.provisioningRequired} readOnly className="h-4 w-4 accent-purple-700" aria-label={`Provisioning ${record.soNumber}`} />
                         </div>
                       </td>
-                      <td className="min-w-56 px-4 py-4">
+                      <td className="align-middle min-w-56 px-4 py-4">
                         <div className="relative inline-flex items-center">
                           <select
                             aria-label={`Workflow for ${record.soNumber}`}
@@ -364,10 +383,10 @@ const WisdmServicesPage = () => {
                           {updating ? <Loader2 className="pointer-events-none absolute right-7 h-3 w-3 animate-spin" /> : null}
                         </div>
                       </td>
-                      <td className="whitespace-nowrap bg-white px-4 py-4 group-hover:bg-gray-50" style={{
-                        width: '180px',
-                        minWidth: '180px',
-                        maxWidth: '180px',
+                      <td className="align-middle whitespace-nowrap bg-white px-4 py-4 group-hover:bg-gray-50" style={{
+                        width: '260px',
+                        minWidth: '260px',
+                        maxWidth: '260px',
                         position: 'sticky',
                         right: 0,
                         zIndex: 1
@@ -382,6 +401,15 @@ const WisdmServicesPage = () => {
                         ) : (
                           <button type="button" disabled className="btn ml-2 bg-gray-100 px-3 py-2 text-gray-400">Edit</button>
                         )}
+                        {record.permissions.canDelete ? (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(record)}
+                            className="btn ml-2 bg-red-500 px-3 py-2 text-white hover:bg-red-600"
+                          >
+                            Delete
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                   )
@@ -495,6 +523,38 @@ const WisdmServicesPage = () => {
       ) : null}
       </div>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="wisdm-delete-title">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h2 id="wisdm-delete-title" className="text-lg font-semibold text-gray-900">Delete Service Record</h2>
+            <p className="mt-3 text-sm text-gray-600">
+              Delete SO <span className="font-semibold text-gray-900">{deleteTarget.soNumber}</span>
+              {' '}(<span className="font-semibold text-gray-900">{deleteTarget.recordId}</span>)?
+            </p>
+            <p className="mt-2 text-sm font-medium text-red-600">
+              This permanently deletes the record and its History. This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deletingRecordId === deleteTarget.recordId}
+                className="btn-outline px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={deleteRecord}
+                disabled={deletingRecordId === deleteTarget.recordId}
+                className="btn bg-red-500 px-4 py-2 text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletingRecordId === deleteTarget.recordId ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showLogoutConfirm ? (
         <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="wisdm-list-logout-title">
           <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">

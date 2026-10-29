@@ -21,7 +21,7 @@ const records = Array.from({ length: 72 }, (_, index) => {
     updatedAt: '2026-10-21T00:00:00Z',
     version: 1,
     allowedWorkflows: ['CREATED', 'WHITELIST_DONE'],
-    permissions: { canEditContent: true, canUpdateWorkflow: true },
+    permissions: { canEditContent: true, canUpdateWorkflow: true, canDelete: true },
   }
 })
 

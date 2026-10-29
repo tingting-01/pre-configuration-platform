@@ -394,6 +394,84 @@ class WisdmServiceAPITests(ImmediateAsyncTestCase):
                 )
         self.assertEqual(conflict.exception.status_code, 409)
 
+    async def test_delete_allows_admin_or_creator_and_rejects_coworker(self):
+        db = Mock()
+        db.get_wisdm_service_record.return_value = service_record()
+        db.delete_wisdm_service_record.return_value = True
+
+        with patch.object(main_simple, "db_client", db):
+            creator_result = await main_simple.delete_wisdm_service_record(
+                "WDM0001", INTERNAL_USER
+            )
+            admin_result = await main_simple.delete_wisdm_service_record(
+                "WDM0001", ADMIN_USER
+            )
+            with self.assertRaises(HTTPException) as forbidden:
+                await main_simple.delete_wisdm_service_record(
+                    "WDM0001",
+                    {
+                        "id": 8,
+                        "email": "coworker@rakwireless.com",
+                        "role": "rakwireless",
+                    },
+                )
+
+        self.assertEqual(
+            creator_result["message"],
+            "WisDM service record deleted successfully",
+        )
+        self.assertEqual(admin_result["message"], creator_result["message"])
+        self.assertEqual(forbidden.exception.status_code, 403)
+        self.assertEqual(db.delete_wisdm_service_record.call_count, 2)
+
+    async def test_delete_automatic_record_uses_saved_creator_id(self):
+        db = Mock()
+        db.get_wisdm_service_record.return_value = service_record(
+            source_type="automatic",
+            created_by={"id": 7, "email": "operator@rakwireless.com"},
+        )
+        db.delete_wisdm_service_record.return_value = True
+
+        with patch.object(main_simple, "db_client", db):
+            await main_simple.delete_wisdm_service_record("WDM0001", INTERNAL_USER)
+
+        db.delete_wisdm_service_record.assert_called_once()
+
+    async def test_delete_maps_missing_conflict_and_failure(self):
+        db = Mock()
+        db.get_wisdm_service_record.return_value = None
+        with patch.object(main_simple, "db_client", db):
+            with self.assertRaises(HTTPException) as missing:
+                await main_simple.delete_wisdm_service_record("WDM404", ADMIN_USER)
+        self.assertEqual(missing.exception.status_code, 404)
+
+        db.get_wisdm_service_record.return_value = service_record()
+        db.delete_wisdm_service_record.side_effect = WisdmVersionConflictError(
+            "conflict"
+        )
+        with patch.object(main_simple, "db_client", db):
+            with self.assertRaises(HTTPException) as conflict:
+                await main_simple.delete_wisdm_service_record("WDM0001", ADMIN_USER)
+        self.assertEqual(conflict.exception.status_code, 409)
+
+        db.delete_wisdm_service_record.side_effect = RuntimeError("database failed")
+        with patch.object(main_simple, "db_client", db), patch("builtins.print"):
+            with self.assertRaises(HTTPException) as failed:
+                await main_simple.delete_wisdm_service_record("WDM0001", ADMIN_USER)
+        self.assertEqual(failed.exception.status_code, 500)
+
+    async def test_delete_never_modifies_source_request(self):
+        db = Mock()
+        db.get_wisdm_service_record.return_value = service_record()
+        db.delete_wisdm_service_record.return_value = True
+
+        with patch.object(main_simple, "db_client", db):
+            await main_simple.delete_wisdm_service_record("WDM0001", INTERNAL_USER)
+
+        db.update_request.assert_not_called()
+        db.update_request_with_activity.assert_not_called()
+        db.update_request_with_wisdm_sync.assert_not_called()
+
     async def test_service_edit_never_writes_back_to_preconfig_request(self):
         db = Mock()
         db.get_wisdm_service_record.return_value = service_record()

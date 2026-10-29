@@ -1203,6 +1203,144 @@ class DynamoDBClient:
         converted = [convert_from_dynamodb_item(item) for item in items]
         converted.sort(key=lambda item: item.get('event_key', ''), reverse=True)
         return converted[:limit] if limit is not None else converted
+
+    def _delete_wisdm_service_history(
+        self,
+        record_id: str,
+        *,
+        batch_size: int = 25,
+        max_batch_attempts: int = 5,
+    ) -> None:
+        """分页批量删除一条服务记录的全部 History；失败时可由调用方重试。"""
+
+        serializer = TypeSerializer()
+        history_table_name = TABLES['wisdm_service_history']
+        while True:
+            response = self.tables['wisdm_service_history'].query(
+                KeyConditionExpression='#record_id = :record_id',
+                ExpressionAttributeNames={
+                    '#record_id': 'record_id',
+                    '#event_key': 'event_key',
+                },
+                ExpressionAttributeValues={':record_id': record_id},
+                ProjectionExpression='#record_id, #event_key',
+                ConsistentRead=True,
+                Limit=batch_size,
+            )
+            history_keys = []
+            for raw_item in response.get('Items', []):
+                item = convert_from_dynamodb_item(raw_item)
+                if item.get('record_id') and item.get('event_key'):
+                    history_keys.append({
+                        'record_id': item['record_id'],
+                        'event_key': item['event_key'],
+                    })
+            if not history_keys:
+                return
+
+            pending = {
+                history_table_name: [
+                    {
+                        'DeleteRequest': {
+                            'Key': {
+                                key: serializer.serialize(value)
+                                for key, value in history_key.items()
+                            }
+                        }
+                    }
+                    for history_key in history_keys
+                ]
+            }
+            for _attempt in range(max_batch_attempts):
+                batch_response = self.transaction_client.batch_write_item(
+                    RequestItems=pending,
+                )
+                unprocessed = batch_response.get('UnprocessedItems') or {}
+                pending_items = unprocessed.get(history_table_name) or []
+                if not pending_items:
+                    break
+                pending = {history_table_name: pending_items}
+            else:
+                raise RuntimeError(
+                    f'Failed to delete all History for WisDM service record {record_id}'
+                )
+
+    def delete_wisdm_service_record(self, record: dict) -> bool:
+        """彻底删除 History、服务主记录和 SO 唯一占位。"""
+
+        record_id = str(record.get('record_id') or '').strip().upper()
+        so_number_key = str(
+            record.get('so_number_key') or normalize_so_number(record.get('so_number'))
+        ).strip()
+        if not record_id or not so_number_key:
+            raise WisdmValidationError('WisDM service record identity is incomplete')
+        try:
+            expected_version = int(record.get('version', 1))
+        except (TypeError, ValueError) as error:
+            raise WisdmValidationError('WisDM service record version is invalid') from error
+
+        self._delete_wisdm_service_history(record_id)
+
+        serializer = TypeSerializer()
+        transact_items = [
+            {
+                'Delete': {
+                    'TableName': TABLES['wisdm_service_records'],
+                    'Key': {
+                        'pk': serializer.serialize(f'RECORD#{record_id}'),
+                    },
+                    'ConditionExpression': (
+                        'attribute_exists(#pk) AND #version = :expected_version'
+                    ),
+                    'ExpressionAttributeNames': {
+                        '#pk': 'pk',
+                        '#version': 'version',
+                    },
+                    'ExpressionAttributeValues': {
+                        ':expected_version': serializer.serialize(expected_version),
+                    },
+                }
+            },
+            {
+                'Delete': {
+                    'TableName': TABLES['wisdm_service_records'],
+                    'Key': {
+                        'pk': serializer.serialize(f'SO#{so_number_key}'),
+                    },
+                    'ConditionExpression': (
+                        'attribute_exists(#pk) AND #record_id = :record_id'
+                    ),
+                    'ExpressionAttributeNames': {
+                        '#pk': 'pk',
+                        '#record_id': 'record_id',
+                    },
+                    'ExpressionAttributeValues': {
+                        ':record_id': serializer.serialize(record_id),
+                    },
+                }
+            },
+        ]
+        try:
+            self.transaction_client.transact_write_items(
+                TransactItems=transact_items,
+            )
+        except ClientError as error:
+            error_code = error.response.get('Error', {}).get('Code')
+            cancellation_reasons = error.response.get('CancellationReasons') or []
+            has_condition_conflict = any(
+                isinstance(reason, dict)
+                and reason.get('Code') == 'ConditionalCheckFailed'
+                for reason in cancellation_reasons
+            )
+            if error_code in {
+                'ConditionalCheckFailedException',
+                'TransactionCanceledException',
+            } and (has_condition_conflict or not cancellation_reasons):
+                raise WisdmVersionConflictError(
+                    f'Service record {record_id} changed while it was being deleted'
+                ) from error
+            raise
+        return True
     
     # ==================== Templates 操作方法 ====================
     

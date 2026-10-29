@@ -12,7 +12,7 @@ const mockedRecord = {
   updatedBy: { id: 1, name: 'Admin', email: 'admin@rakwireless.com' },
   createdAt: '2026-10-21T00:00:00Z', updatedAt: '2026-10-21T00:00:00Z', version: 1,
   allowedWorkflows: ['CREATED', 'WHITELIST_DONE', 'ALL_DONE'],
-  permissions: { canEditContent: true, canUpdateWorkflow: true }, history: [],
+  permissions: { canEditContent: true, canUpdateWorkflow: true, canDelete: true }, history: [],
 }
 
 test.describe('add-wisdm-service-management', () => {

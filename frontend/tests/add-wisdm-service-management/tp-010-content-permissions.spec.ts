@@ -22,7 +22,7 @@ test.describe('add-wisdm-service-management', () => {
     expect((await getWisdmRecord(request, creator, manual.recordId)).permissions.canEditContent).toBe(true)
     expect((await getWisdmRecord(request, admin, manual.recordId)).permissions.canEditContent).toBe(true)
     const otherView = await getWisdmRecord(request, other, manual.recordId)
-    expect(otherView.permissions).toEqual({ canEditContent: false, canUpdateWorkflow: true })
+    expect(otherView.permissions).toEqual({ canEditContent: false, canUpdateWorkflow: true, canDelete: false })
     const forbiddenEdit = await updateWisdmContent(request, other, otherView, { notes: 'must-not-save' })
     expect(forbiddenEdit.status()).toBe(403)
 
@@ -36,7 +36,7 @@ test.describe('add-wisdm-service-management', () => {
     const moved = await updateWisdmWorkflow(request, creator, manual.recordId, manual.version, 'WHITELIST_DONE')
     expect(moved.status()).toBe(200)
     const locked = await getWisdmRecord(request, admin, manual.recordId)
-    expect(locked.permissions).toEqual({ canEditContent: false, canUpdateWorkflow: true })
+    expect(locked.permissions).toEqual({ canEditContent: false, canUpdateWorkflow: true, canDelete: true })
 
     const forbiddenWorkflow = await request.put(`${API_BASE_URL}/api/wisdm-service-records/${manual.recordId}`, {
       headers: authHeaders(external), data: { workflow: 'CREATED', version: locked.version },

@@ -19,6 +19,7 @@ from wisdm_service import (  # noqa: E402
     allowed_workflows,
     build_auto_sync_plan,
     build_wisdm_history_item,
+    can_delete_wisdm_record,
     can_edit_wisdm_content,
     can_update_wisdm_workflow,
     extract_preconfig_reference,
@@ -148,6 +149,10 @@ class WisdmDomainRuleTests(unittest.TestCase):
         )
         self.assertTrue(can_update_wisdm_workflow(coworker))
         self.assertFalse(can_update_wisdm_workflow(outsider))
+        self.assertTrue(can_delete_wisdm_record(creator, manual))
+        self.assertFalse(can_delete_wisdm_record(coworker, manual))
+        self.assertTrue(can_delete_wisdm_record(admin, manual))
+        self.assertFalse(can_delete_wisdm_record(outsider, manual))
 
     def test_history_actor_is_taken_from_authenticated_user(self):
         event = build_wisdm_history_item(
@@ -388,7 +393,7 @@ class WisdmSerializationTests(unittest.TestCase):
     def test_list_response_uses_camel_case_source_and_permission_fields(self):
         payload = serialize_wisdm_record_list(
             [self.record],
-            lambda _record: (False, True),
+            lambda _record: (False, True, True),
         )
         item = payload["records"][0]
         self.assertEqual(item["recordId"], "WDM0007")
@@ -397,7 +402,11 @@ class WisdmSerializationTests(unittest.TestCase):
         self.assertEqual(item["version"], 3)
         self.assertEqual(
             item["permissions"],
-            {"canEditContent": False, "canUpdateWorkflow": True},
+            {
+                "canEditContent": False,
+                "canUpdateWorkflow": True,
+                "canDelete": True,
+            },
         )
 
     def test_detail_response_adds_serialized_history(self):

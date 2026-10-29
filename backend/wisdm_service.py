@@ -91,6 +91,24 @@ def can_update_wisdm_workflow(user: Mapping[str, Any]) -> bool:
     return is_wisdm_internal_user(user)
 
 
+def can_delete_wisdm_record(
+    user: Mapping[str, Any],
+    record: Mapping[str, Any],
+) -> bool:
+    """管理员可删除任意记录，其他内部账号只能删除自己创建的记录。"""
+
+    if not is_wisdm_internal_user(user):
+        return False
+    if _user_role(user) == "admin":
+        return True
+
+    created_by = record.get("created_by")
+    creator_id = created_by.get("id") if isinstance(created_by, Mapping) else created_by
+    if creator_id is None:
+        creator_id = record.get("created_by_id")
+    return creator_id is not None and str(creator_id) == str(user.get("id"))
+
+
 def build_wisdm_history_item(
     record_id: str,
     event_type: str,
@@ -592,6 +610,7 @@ def serialize_wisdm_record(
     *,
     can_edit_content: bool,
     can_update_workflow: bool,
+    can_delete: bool = False,
 ) -> dict[str, Any]:
     """把存储字段统一转换为前端使用的 camelCase 结构。"""
 
@@ -625,6 +644,7 @@ def serialize_wisdm_record(
         "permissions": {
             "canEditContent": bool(can_edit_content),
             "canUpdateWorkflow": bool(can_update_workflow),
+            "canDelete": bool(can_delete),
         },
     }
     return _plain_value(result)
@@ -645,15 +665,16 @@ def serialize_wisdm_history(event: Mapping[str, Any]) -> dict[str, Any]:
 
 def serialize_wisdm_record_list(
     records: Iterable[Mapping[str, Any]],
-    permission_resolver: Callable[[Mapping[str, Any]], tuple[bool, bool]],
+    permission_resolver: Callable[[Mapping[str, Any]], tuple[bool, bool, bool]],
 ) -> dict[str, Any]:
     serialized = []
     for record in records:
-        can_edit_content, can_update_workflow = permission_resolver(record)
+        can_edit_content, can_update_workflow, can_delete = permission_resolver(record)
         serialized.append(serialize_wisdm_record(
             record,
             can_edit_content=can_edit_content,
             can_update_workflow=can_update_workflow,
+            can_delete=can_delete,
         ))
     return {"records": serialized}
 
@@ -664,11 +685,13 @@ def serialize_wisdm_record_detail(
     *,
     can_edit_content: bool,
     can_update_workflow: bool,
+    can_delete: bool = False,
 ) -> dict[str, Any]:
     result = serialize_wisdm_record(
         record,
         can_edit_content=can_edit_content,
         can_update_workflow=can_update_workflow,
+        can_delete=can_delete,
     )
     result["history"] = [serialize_wisdm_history(event) for event in history]
     return result

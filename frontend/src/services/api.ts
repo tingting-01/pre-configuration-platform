@@ -158,6 +158,7 @@ export interface WisdmServiceRecord {
   permissions: {
     canEditContent: boolean
     canUpdateWorkflow: boolean
+    canDelete: boolean
   }
 }
 
@@ -310,6 +311,13 @@ export const wisdmServiceAPI = {
     const response = await api.put<WisdmServiceRecord>(
       `/api/wisdm-service-records/${encodeURIComponent(recordId)}`,
       data,
+    )
+    return response.data
+  },
+
+  deleteRecord: async (recordId: string): Promise<{ message: string }> => {
+    const response = await api.delete<{ message: string }>(
+      `/api/wisdm-service-records/${encodeURIComponent(recordId)}`,
     )
     return response.data
   },

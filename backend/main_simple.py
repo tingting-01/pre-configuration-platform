@@ -32,6 +32,7 @@ from wisdm_service import (
     allowed_workflows,
     build_auto_sync_plan,
     build_wisdm_history_item,
+    can_delete_wisdm_record,
     conflicting_barcode_request_ids,
     extract_preconfig_reference,
     can_edit_wisdm_content,
@@ -948,10 +949,11 @@ def _require_wisdm_internal(current_user: dict) -> None:
         )
 
 
-def _wisdm_permissions(current_user: dict, record: dict) -> tuple[bool, bool]:
+def _wisdm_permissions(current_user: dict, record: dict) -> tuple[bool, bool, bool]:
     return (
         can_edit_wisdm_content(current_user, record),
         can_update_wisdm_workflow(current_user),
+        can_delete_wisdm_record(current_user, record),
     )
 
 
@@ -1055,6 +1057,7 @@ async def create_wisdm_service_record(
             record,
             can_edit_content=True,
             can_update_workflow=True,
+            can_delete=True,
         )
     except (WisdmRequestNotFoundError, WisdmAssociationMismatchError, WisdmValidationError) as error:
         raise HTTPException(status_code=400, detail=str(error))
@@ -1072,13 +1075,49 @@ async def get_wisdm_service_record(
     if not record:
         raise HTTPException(status_code=404, detail="WisDM service record not found")
     history = db_client.query_wisdm_service_history(record["record_id"])
-    can_edit, can_update = _wisdm_permissions(current_user, record)
+    can_edit, can_update, can_delete = _wisdm_permissions(current_user, record)
     return serialize_wisdm_record_detail(
         record,
         history,
         can_edit_content=can_edit,
         can_update_workflow=can_update,
+        can_delete=can_delete,
     )
+
+
+@app.delete("/api/wisdm-service-records/{record_id}")
+async def delete_wisdm_service_record(
+    record_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """管理员可删除任意记录，其他内部账号只能删除自己创建的记录。"""
+
+    _require_wisdm_internal(current_user)
+    record = db_client.get_wisdm_service_record(record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="WisDM service record not found")
+    if not can_delete_wisdm_record(current_user, record):
+        raise HTTPException(
+            status_code=403,
+            detail="You can only delete your own WisDM service records",
+        )
+
+    try:
+        deleted = db_client.delete_wisdm_service_record(record)
+    except WisdmVersionConflictError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    except Exception as error:
+        print(f"❌ Failed to delete WisDM service record {record_id}: {error}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete WisDM service record",
+        )
+    if not deleted:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete WisDM service record",
+        )
+    return {"message": "WisDM service record deleted successfully"}
 
 
 @app.put("/api/wisdm-service-records/{record_id}")
@@ -1120,11 +1159,12 @@ async def update_wisdm_service_record(
                 detail="Workflow does not match the selected WisDM services",
             )
         if new_workflow == record.get("workflow"):
-            can_edit, can_update = _wisdm_permissions(current_user, record)
+            can_edit, can_update, can_delete = _wisdm_permissions(current_user, record)
             return serialize_wisdm_record(
                 record,
                 can_edit_content=can_edit,
                 can_update_workflow=can_update,
+                can_delete=can_delete,
             )
 
         now = datetime.now().isoformat()
@@ -1151,11 +1191,12 @@ async def update_wisdm_service_record(
             )
         except WisdmVersionConflictError as error:
             raise HTTPException(status_code=409, detail=str(error))
-        can_edit, can_update = _wisdm_permissions(current_user, updated)
+        can_edit, can_update, can_delete = _wisdm_permissions(current_user, updated)
         return serialize_wisdm_record(
             updated,
             can_edit_content=can_edit,
             can_update_workflow=can_update,
+            can_delete=can_delete,
         )
 
     if not can_edit_wisdm_content(current_user, record):
@@ -1226,11 +1267,12 @@ async def update_wisdm_service_record(
             update_data,
             expected_version,
         )
-        can_edit, can_update = _wisdm_permissions(current_user, updated)
+        can_edit, can_update, can_delete = _wisdm_permissions(current_user, updated)
         return serialize_wisdm_record(
             updated,
             can_edit_content=can_edit,
             can_update_workflow=can_update,
+            can_delete=can_delete,
         )
     except (WisdmRequestNotFoundError, WisdmAssociationMismatchError, WisdmValidationError) as error:
         raise HTTPException(status_code=400, detail=str(error))

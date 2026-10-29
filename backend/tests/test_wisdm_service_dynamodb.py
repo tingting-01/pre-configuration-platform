@@ -224,6 +224,159 @@ class WisdmDynamoDBTests(unittest.TestCase):
         )
         self.assertFalse(history_table.query.call_args.kwargs["ScanIndexForward"])
 
+    def test_delete_removes_all_history_then_record_and_so_lock(self):
+        history_table = Mock()
+        history_table.query.side_effect = [
+            {
+                "Items": [
+                    {"record_id": "WDM0001", "event_key": "time#2"},
+                    {"record_id": "WDM0001", "event_key": "time#1"},
+                ]
+            },
+            {"Items": []},
+        ]
+        transaction_client = Mock()
+        transaction_client.batch_write_item.return_value = {"UnprocessedItems": {}}
+        client = self._client(
+            history_table=history_table,
+            transaction_client=transaction_client,
+        )
+
+        deleted = client.delete_wisdm_service_record({
+            "record_id": "WDM0001",
+            "so_number": "SO-1",
+            "so_number_key": "SO-1",
+            "version": 3,
+        })
+
+        self.assertTrue(deleted)
+        batch_requests = transaction_client.batch_write_item.call_args.kwargs[
+            "RequestItems"
+        ][TABLES["wisdm_service_history"]]
+        self.assertEqual(len(batch_requests), 2)
+        transact_items = transaction_client.transact_write_items.call_args.kwargs[
+            "TransactItems"
+        ]
+        self.assertEqual(len(transact_items), 2)
+        self.assertEqual(
+            transact_items[0]["Delete"]["Key"]["pk"],
+            {"S": "RECORD#WDM0001"},
+        )
+        self.assertEqual(
+            transact_items[1]["Delete"]["Key"]["pk"],
+            {"S": "SO#SO-1"},
+        )
+        self.assertEqual(
+            transact_items[0]["Delete"]["ExpressionAttributeValues"][":expected_version"],
+            {"N": "3"},
+        )
+
+    def test_delete_failure_can_be_retried_without_partial_success(self):
+        history_table = Mock()
+        history_table.query.side_effect = [
+            {"Items": [{"record_id": "WDM0001", "event_key": "time#1"}]},
+            {"Items": [{"record_id": "WDM0001", "event_key": "time#1"}]},
+            {"Items": []},
+        ]
+        batch_error = ClientError(
+            {"Error": {"Code": "InternalServerError", "Message": "retry"}},
+            "BatchWriteItem",
+        )
+        transaction_client = Mock()
+        transaction_client.batch_write_item.side_effect = [
+            batch_error,
+            {"UnprocessedItems": {}},
+        ]
+        client = self._client(
+            history_table=history_table,
+            transaction_client=transaction_client,
+        )
+        record = {
+            "record_id": "WDM0001",
+            "so_number_key": "SO-1",
+            "version": 1,
+        }
+
+        with self.assertRaises(ClientError):
+            client.delete_wisdm_service_record(record)
+        transaction_client.transact_write_items.assert_not_called()
+
+        self.assertTrue(client.delete_wisdm_service_record(record))
+        transaction_client.transact_write_items.assert_called_once()
+
+    def test_delete_version_conflict_is_safe_and_retry_uses_latest_version(self):
+        conflict = ClientError(
+            {
+                "Error": {
+                    "Code": "TransactionCanceledException",
+                    "Message": "version conflict",
+                },
+                "CancellationReasons": [
+                    {"Code": "ConditionalCheckFailed"},
+                    {"Code": "None"},
+                ],
+            },
+            "TransactWriteItems",
+        )
+        history_table = Mock()
+        history_table.query.side_effect = [
+            {"Items": []},
+            {"Items": [{"record_id": "WDM0001", "event_key": "new#1"}]},
+            {"Items": []},
+        ]
+        transaction_client = Mock()
+        transaction_client.transact_write_items.side_effect = [conflict, None]
+        transaction_client.batch_write_item.return_value = {"UnprocessedItems": {}}
+        client = self._client(
+            history_table=history_table,
+            transaction_client=transaction_client,
+        )
+
+        with self.assertRaises(WisdmVersionConflictError):
+            client.delete_wisdm_service_record({
+                "record_id": "WDM0001",
+                "so_number_key": "SO-1",
+                "version": 1,
+            })
+
+        self.assertTrue(client.delete_wisdm_service_record({
+            "record_id": "WDM0001",
+            "so_number_key": "SO-1",
+            "version": 2,
+        }))
+        final_items = transaction_client.transact_write_items.call_args.kwargs[
+            "TransactItems"
+        ]
+        self.assertEqual(
+            final_items[0]["Delete"]["ExpressionAttributeValues"][":expected_version"],
+            {"N": "2"},
+        )
+
+    def test_deleted_so_can_be_created_again_with_a_new_record_id(self):
+        history_table = Mock()
+        history_table.query.return_value = {"Items": []}
+        transaction_client = Mock()
+        client = self._client(
+            history_table=history_table,
+            transaction_client=transaction_client,
+        )
+        client.next_wisdm_service_record_id = Mock(return_value="WDM0002")
+
+        client.delete_wisdm_service_record({
+            "record_id": "WDM0001",
+            "so_number_key": "SO-1",
+            "version": 1,
+        })
+        created = client.create_wisdm_service_record({
+            "so_number": "SO-1",
+            "associations": [{"request_id": "REQ1", "barcode": "BC1"}],
+            "whitelist_required": True,
+            "provisioning_required": False,
+        })
+
+        self.assertEqual(created["record_id"], "WDM0002")
+        self.assertEqual(transaction_client.transact_write_items.call_count, 2)
+
     def test_workflow_and_history_are_written_in_one_transaction(self):
         records_table = Mock()
         history_table = Mock()
